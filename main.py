@@ -263,11 +263,11 @@ async def submit_audio(
     try:
         # 4) Transcribe using Whisper (Sinhala)
         with open(tmp_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1",     # OpenAI Whisper model
-                file=audio_file,
-                language="si",         # Sinhala
-            )
+           transcription = client.audio.transcriptions.create(
+    model="gpt-4o-transcribe",
+    file=audio_file
+)
+
 
         transcript_text = transcription.text.strip()
 
