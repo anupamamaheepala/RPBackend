@@ -135,7 +135,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
-
+from services.eye_tracking_service import analyze_eye_movements
 from pydantic import BaseModel
 from typing import Optional
 from jiwer import wer
@@ -221,82 +221,79 @@ def compare_text(body: CompareBody):
 
 # -----------------------------
 # MAIN endpoint used by Flutter
-@app.post("/dyslexia/submit-audio")
-async def submit_audio(
+
+@app.post("/dyslexia/submit-session")
+async def submit_session(
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
     level: Optional[int] = Form(None),
-    file: UploadFile = File(...)
+    audio: UploadFile = File(...),
+    video: UploadFile = File(...)
 ):
-    """
-    Steps:
-    1. Read audio bytes
-    2. Store audio + metadata in MongoDB
-    3. Transcribe Sinhala audio (Whisper API)
-    4. Compute metrics vs reference_text
-    5. Store reading result in MongoDB
-    6. Return metrics to Flutter
-    """
-    # 1) Read bytes
-    audio_bytes = await file.read()
+    audio_bytes = await audio.read()
+    video_bytes = await video.read()
 
-    # 2) Store audio in MongoDB (binary)
-    audio_doc = {
-        "filename": file.filename,
-        "content_type": file.content_type,
+    audio_id = db["audio_files"].insert_one({
+        "filename": audio.filename,
         "data": Binary(audio_bytes),
-        "grade": grade,
-        "level": level,
-        "duration": duration,
-        "created_at": datetime.utcnow(),
-    }
-    audio_result = db["audio_files"].insert_one(audio_doc)
-    audio_id = audio_result.inserted_id
+        "created_at": datetime.utcnow()
+    }).inserted_id
 
-    # 3) Save temporarily for Whisper API
-    suffix = os.path.splitext(file.filename)[1] or ".wav"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-        tmp_file.write(audio_bytes)
-        tmp_path = tmp_file.name
+    video_id = db["video_files"].insert_one({
+        "filename": video.filename,
+        "data": Binary(video_bytes),
+        "created_at": datetime.utcnow()
+    }).inserted_id
+
+    # save temp files
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as af:
+        af.write(audio_bytes)
+        audio_path = af.name
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as vf:
+        vf.write(video_bytes)
+        video_path = vf.name
 
     try:
-        # 4) Transcribe using Whisper (Sinhala)
-        with open(tmp_path, "rb") as audio_file:
-           transcription = client.audio.transcriptions.create(
-    model="gpt-4o-transcribe",
-    file=audio_file
-)
+        # TRANSCRIPTION
+        with open(audio_path, "rb") as f:
+            transcription = client.audio.transcriptions.create(
+                model="gpt-4o-transcribe",
+                file=f
+            )
+        transcript = transcription.text.strip()
 
+        # READING METRICS
+        reading_metrics = compute_metrics(reference_text, transcript, duration)
 
-        transcript_text = transcription.text.strip()
+        # EYE METRICS
+        eye_metrics = analyze_eye_movements(video_path)
 
-        # 5) Compute metrics
-        metrics = compute_metrics(reference_text, transcript_text, duration)
-
-        # 6) Store reading result in MongoDB
-        reading_doc = {
-            "audio_file_id": audio_id,
+        session = {
+            "audio_id": str(audio_id),
+            "video_id": str(video_id),
             "reference_text": reference_text,
-            "transcript": transcript_text,
+            "transcript": transcript,
+            "duration": duration,
             "grade": grade,
             "level": level,
-            "duration": duration,
-            "metrics": metrics,
+            "reading_metrics": reading_metrics,
+            "eye_metrics": eye_metrics,
             "created_at": datetime.utcnow(),
         }
-        reading_result = db["readings"].insert_one(reading_doc)
+
+        sid = db["reading_sessions"].insert_one(session).inserted_id
 
         return {
             "ok": True,
-            "reading_id": str(reading_result.inserted_id),
-            "metrics": metrics,
+            "session_id": str(sid),
+            "metrics": {
+                **reading_metrics,
+                **eye_metrics
+            }
         }
 
-    except Exception as e:
-        return {"ok": False, "error": f"Transcription failed: {e}"}
-
     finally:
-        # Clean temp file
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        if os.path.exists(audio_path): os.unlink(audio_path)
+        if os.path.exists(video_path): os.unlink(video_path)
