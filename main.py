@@ -173,28 +173,59 @@ db = get_db()
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # -----------------------------
+
+def extract_word_errors(reference: str, transcript: str):
+    ref_words = reference.strip().split()
+    hyp_words = transcript.strip().split()
+
+    correct = []
+    incorrect = []
+
+    for i, ref_word in enumerate(ref_words):
+        if i < len(hyp_words) and hyp_words[i] == ref_word:
+            correct.append(ref_word)
+        else:
+            incorrect.append(ref_word)
+
+    return correct, incorrect
+
+
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
     reference = reference.strip()
     transcript = transcript.strip()
 
+    correct_words_list, incorrect_words_list = extract_word_errors(
+        reference, transcript
+    )
+
     error_rate = wer(reference.lower(), transcript.lower())
-    accuracy = max(0.0, 1 - error_rate) * 100
+    WER = error_rate * 100
+    #accuracy = max(0.0, 1 - error_rate) * 100
 
     ref_words = reference.split()
-    correct_words = round((accuracy / 100) * len(ref_words), 2)
+    hyp_words = transcript.split()
+    total_words = len(ref_words)
+    correct_words = len(correct_words_list)
+    accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
+    #correct_words = round((accuracy / 100) * len(ref_words), 2)
+ 
+   # words_per_sec = None
+   # if duration and duration > 0:
+   #    words_per_sec = round(len(transcript.split()) / duration, 2)
 
-    words_per_sec = None
+    speed = None
     if duration and duration > 0:
-        words_per_sec = round(len(transcript.split()) / duration, 2)
+        speed = round(len(hyp_words) / duration, 2)
 
     return {
         "reference": reference,
         "transcript": transcript,
-        "total_words": len(transcript.split()),
+        "total_words": total_words,
         "correct_words": correct_words,
         "accuracy_percent": round(accuracy, 2),
-        "wer": round(error_rate, 4),
-        "words_per_second": words_per_sec,
+        "wer": round(WER, 2),
+        "words_per_second": speed,
+        "incorrect_words": incorrect_words_list,
     }
 
 # -----------------------------
