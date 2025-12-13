@@ -173,6 +173,32 @@ db = get_db()
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # -----------------------------
+SINHALA_NORMALIZATION_MAP = {
+    "ණ": "න",
+    "ළ": "ල",
+    "ශ": "ෂ",
+    "ඤ": "ඥ",
+}
+
+def normalize_sinhala_word(word: str) -> str:
+    for src, tgt in SINHALA_NORMALIZATION_MAP.items():
+        word = word.replace(src, tgt)
+    return word
+
+# def extract_word_errors(reference: str, transcript: str):
+#     ref_words = reference.strip().split()
+#     hyp_words = transcript.strip().split()
+
+#     correct = []
+#     incorrect = []
+
+#     for i, ref_word in enumerate(ref_words):
+#         if i < len(hyp_words) and hyp_words[i] == ref_word:
+#             correct.append(ref_word)
+#         else:
+#             incorrect.append(ref_word)
+
+#     return correct, incorrect
 
 def extract_word_errors(reference: str, transcript: str):
     ref_words = reference.strip().split()
@@ -182,12 +208,20 @@ def extract_word_errors(reference: str, transcript: str):
     incorrect = []
 
     for i, ref_word in enumerate(ref_words):
-        if i < len(hyp_words) and hyp_words[i] == ref_word:
-            correct.append(ref_word)
+        ref_norm = normalize_sinhala_word(ref_word)
+
+        if i < len(hyp_words):
+            hyp_norm = normalize_sinhala_word(hyp_words[i])
+
+            if hyp_norm == ref_norm:
+                correct.append(ref_word)
+            else:
+                incorrect.append(ref_word)
         else:
             incorrect.append(ref_word)
 
     return correct, incorrect
+
 
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
@@ -198,21 +232,23 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         reference, transcript
     )
 
-    error_rate = wer(reference.lower(), transcript.lower())
-    WER = error_rate * 100
+    #error_rate = wer(reference.lower(), transcript.lower())
+    #WER = error_rate * 100
     #accuracy = max(0.0, 1 - error_rate) * 100
+      #correct_words = round((accuracy / 100) * len(ref_words), 2)
+ 
+   # words_per_sec = None
+   # if duration and duration > 0:
+   #    words_per_sec = round(len(transcript.split()) / duration, 2)
 
     ref_words = reference.split()
     hyp_words = transcript.split()
     total_words = len(ref_words)
     correct_words = len(correct_words_list)
     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
-    #correct_words = round((accuracy / 100) * len(ref_words), 2)
- 
-   # words_per_sec = None
-   # if duration and duration > 0:
-   #    words_per_sec = round(len(transcript.split()) / duration, 2)
-
+    error_rate = 100 - accuracy
+    WER = error_rate * 100
+  
     speed = None
     if duration and duration > 0:
         speed = round(len(hyp_words) / duration, 2)
