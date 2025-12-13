@@ -1,10 +1,11 @@
-import cv2
-import mediapipe as mp
-import numpy as np
-
-mp_face_mesh = mp.solutions.face_mesh
-
 def analyze_eye_movements(video_path: str):
+    # 🔹 Lazy imports (VERY IMPORTANT for cloud deploy)
+    import cv2
+    import mediapipe as mp
+    import numpy as np
+
+    mp_face_mesh = mp.solutions.face_mesh
+
     """
     Returns:
       - fixation_count
@@ -13,7 +14,7 @@ def analyze_eye_movements(video_path: str):
     """
 
     cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30  # fallback safety
 
     face_mesh = mp_face_mesh.FaceMesh(
         max_num_faces=1,
@@ -45,7 +46,12 @@ def analyze_eye_movements(video_path: str):
 
         face = results.multi_face_landmarks[0]
 
-        left_eye = np.mean([(lm.x, lm.y) for lm in face.landmark[33:133]], axis=0)
+        # Left eye landmarks (MediaPipe)
+        left_eye = np.mean(
+            [(lm.x, lm.y) for lm in face.landmark[33:133]],
+            axis=0
+        )
+
         gaze_x = left_eye[0]
 
         if last_gaze_x is not None:
