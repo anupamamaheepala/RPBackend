@@ -247,7 +247,7 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
     correct_words = len(correct_words_list)
     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
     error_rate = 100 - accuracy
-    WER = error_rate * 100
+    WER = error_rate
   
     speed = None
     if duration and duration > 0:
