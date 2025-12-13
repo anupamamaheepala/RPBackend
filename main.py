@@ -173,29 +173,53 @@ db = get_db()
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # -----------------------------
-def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
+def compute_metrics(reference: str, transcript: str, duration: Optional[float]):
     reference = reference.strip()
     transcript = transcript.strip()
 
-    error_rate = wer(reference.lower(), transcript.lower())
-    accuracy = max(0.0, 1 - error_rate) * 100
-
     ref_words = reference.split()
-    correct_words = round((accuracy / 100) * len(ref_words), 2)
+    hyp_words = transcript.split()
 
-    words_per_sec = None
+    correct_words_list, incorrect_words_list = extract_word_errors(
+        reference, transcript
+    )
+
+    total_words = len(ref_words)
+    correct_words = len(correct_words_list)
+
+    accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
+    error_rate = wer(reference.lower(), transcript.lower())
+
+    speed = None
     if duration and duration > 0:
-        words_per_sec = round(len(transcript.split()) / duration, 2)
+        speed = round(len(hyp_words) / duration, 2)
 
     return {
         "reference": reference,
         "transcript": transcript,
-        "total_words": len(transcript.split()),
-        "correct_words": correct_words,
         "accuracy_percent": round(accuracy, 2),
+        "correct_words": correct_words,
+        "total_words": total_words,
         "wer": round(error_rate, 4),
-        "words_per_second": words_per_sec,
+        "words_per_second": speed,
+        "incorrect_words": incorrect_words_list,
+        
     }
+
+def extract_word_errors(reference: str, transcript: str):
+    ref_words = reference.strip().split()
+    hyp_words = transcript.strip().split()
+
+    correct = []
+    incorrect = []
+
+    for i, ref_word in enumerate(ref_words):
+        if i < len(hyp_words) and hyp_words[i] == ref_word:
+            correct.append(ref_word)
+        else:
+            incorrect.append(ref_word)
+
+    return correct, incorrect
 
 # -----------------------------
 # Basic root endpoints
@@ -229,74 +253,51 @@ async def submit_audio(
     level: Optional[int] = Form(None),
     file: UploadFile = File(...)
 ):
-    """
-    Steps:
-    1. Read audio bytes
-    2. Store audio + metadata in MongoDB
-    3. Transcribe Sinhala audio (Whisper API)
-    4. Compute metrics vs reference_text
-    5. Store reading result in MongoDB
-    6. Return metrics to Flutter
-    """
-    # 1) Read bytes
     audio_bytes = await file.read()
 
-    # 2) Store audio in MongoDB (binary)
     audio_doc = {
         "filename": file.filename,
         "content_type": file.content_type,
         "data": Binary(audio_bytes),
-        "grade": grade,
-        "level": level,
-        "duration": duration,
         "created_at": datetime.utcnow(),
     }
-    audio_result = db["audio_files"].insert_one(audio_doc)
-    audio_id = audio_result.inserted_id
+    audio_id = db["audio_files"].insert_one(audio_doc).inserted_id
 
-    # 3) Save temporarily for Whisper API
     suffix = os.path.splitext(file.filename)[1] or ".wav"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-        tmp_file.write(audio_bytes)
-        tmp_path = tmp_file.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
 
     try:
-        # 4) Transcribe using Whisper (Sinhala)
         with open(tmp_path, "rb") as audio_file:
-           transcription = client.audio.transcriptions.create(
-    model="gpt-4o-transcribe",
-    file=audio_file
-)
-
+            transcription = client.audio.transcriptions.create(
+                model="gpt-4o-transcribe",
+                file=audio_file
+            )
 
         transcript_text = transcription.text.strip()
 
-        # 5) Compute metrics
+        # ✅ BACKEND COMPUTES METRICS
         metrics = compute_metrics(reference_text, transcript_text, duration)
 
-        # 6) Store reading result in MongoDB
         reading_doc = {
             "audio_file_id": audio_id,
-            "reference_text": reference_text,
-            "transcript": transcript_text,
             "grade": grade,
             "level": level,
-            "duration": duration,
+            "reference_text": reference_text,
+            "duration_seconds": duration,
             "metrics": metrics,
             "created_at": datetime.utcnow(),
         }
-        reading_result = db["readings"].insert_one(reading_doc)
+
+        reading_id = db["readings"].insert_one(reading_doc).inserted_id
 
         return {
             "ok": True,
-            "reading_id": str(reading_result.inserted_id),
+            "reading_id": str(reading_id),
             "metrics": metrics,
         }
 
-    except Exception as e:
-        return {"ok": False, "error": f"Transcription failed: {e}"}
-
     finally:
-        # Clean temp file
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
