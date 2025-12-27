@@ -144,6 +144,7 @@ from bson import Binary
 from openai import OpenAI
 import tempfile
 import os
+import json   # ✅ NEW
 
 from services.db_service import get_db
 from config.settings import settings
@@ -289,11 +290,14 @@ def compare_text(body: CompareBody):
 # -----------------------------
 # MAIN endpoint used by Flutter
 @app.post("/dyslexia/submit-audio")
+
 async def submit_audio(
+    
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
     level: Optional[int] = Form(None),
+    eye_metrics: Optional[str] = Form(None), 
     file: UploadFile = File(...)
 ):
     """
@@ -341,6 +345,14 @@ async def submit_audio(
         # 5) Compute metrics
         metrics = compute_metrics(reference_text, transcript_text, duration)
 
+        eye_data = {}
+
+        if eye_metrics:
+           try:
+               eye_data = json.loads(eye_metrics)
+           except Exception:
+               eye_data = {}
+
         # 6) Store reading result in MongoDB
         reading_doc = {
             "audio_file_id": audio_id,
@@ -350,6 +362,16 @@ async def submit_audio(
             "level": level,
             "duration": duration,
             "metrics": metrics,
+            # ---------------- AUDIO METRICS ----------------
+            "audio_metrics": metrics,
+            # ---------------- EYE TRACKING METRICS ----------------
+            "eye_tracking": {
+            "fixation_count": eye_data.get("fixation_count", 0),
+            "avg_fixation_ms": eye_data.get("avg_fixation_ms", 0),
+            "regression_count": eye_data.get("regression_count", 0),
+            "saccade_count": eye_data.get("saccade_count", 0),
+            "blink_rate_per_min": eye_data.get("blink_rate_per_min", 0),
+        },
             "created_at": datetime.utcnow(),
         }
         reading_result = db["readings"].insert_one(reading_doc)
@@ -358,6 +380,7 @@ async def submit_audio(
             "ok": True,
             "reading_id": str(reading_result.inserted_id),
             "metrics": metrics,
+            "eye_tracking": eye_data,
         }
 
     except Exception as e:
