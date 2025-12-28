@@ -135,7 +135,9 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
-
+from fastapi.responses import StreamingResponse
+from bson import ObjectId
+import io
 from pydantic import BaseModel
 from typing import Optional
 from jiwer import wer
@@ -180,6 +182,7 @@ SINHALA_NORMALIZATION_MAP = {
     "ශ": "ෂ",
     "ඤ": "ඥ",
 }
+
 
 def normalize_sinhala_word(word: str) -> str:
     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
@@ -315,6 +318,25 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
 
     }
 
+#GET THE AUDIO LINK
+@app.get("/audio/{audio_id}")
+def get_audio(audio_id: str):
+    audio_doc = db["audio_files"].find_one(
+        {"_id": ObjectId(audio_id)}
+    )
+
+    if not audio_doc:
+        return {"ok": False, "error": "Audio not found"}
+
+    return StreamingResponse(
+        io.BytesIO(audio_doc["data"]),
+        media_type=audio_doc.get("content_type", "audio/wav"),
+        headers={
+            "Content-Disposition": f"inline; filename={audio_doc['filename']}"
+        }
+    )
+
+
 # -----------------------------
 # Basic root endpoints
 @app.get("/")
@@ -415,6 +437,8 @@ async def submit_audio(
             "duration": duration,
             #"metrics": metrics,
             # ---------------- AUDIO METRICS ----------------
+            "audio_id": str(audio_id),   
+            "audio_url": f"/audio/{audio_id}",  
             "audio_metrics": metrics,
             # ---------------- EYE TRACKING METRICS ----------------
             "eye_tracking": {
