@@ -395,7 +395,6 @@ async def submit_audio(
 
         # 5) Compute metrics
         metrics = compute_metrics(reference_text, transcript_text, duration)
-        dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
 
         eye_data = {}
 
@@ -404,6 +403,8 @@ async def submit_audio(
                eye_data = json.loads(eye_metrics)
            except Exception:
                eye_data = {}
+               
+        dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
 
         # 6) Store reading result in MongoDB
         reading_doc = {
