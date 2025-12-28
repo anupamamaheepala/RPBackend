@@ -266,13 +266,11 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
         level = "HIGH"
 
     return {
+        "phonological_risk": round(phonological_risk, 3),
+        "fluency_risk": round(fluency_risk, 3),
+        "eye_risk": round(eye_risk, 3),
         "risk_score": round(final_risk, 3),
         "risk_level": level,
-        "components": {
-            "phonological_risk": round(phonological_risk, 3),
-            "fluency_risk": round(fluency_risk, 3),
-            "eye_risk": round(eye_risk, 3),
-        },
     }
 
 
@@ -313,7 +311,8 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "accuracy_percent": round(accuracy, 2),
         "wer": round(WER, 2),
         "words_per_second": speed,
-        "incorrect_words": incorrect_words_list,
+        "incorrect_words": ", ".join(incorrect_words_list),
+
     }
 
 # -----------------------------
@@ -403,7 +402,7 @@ async def submit_audio(
                eye_data = json.loads(eye_metrics)
            except Exception:
                eye_data = {}
-               
+
         dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
 
         # 6) Store reading result in MongoDB
@@ -414,7 +413,7 @@ async def submit_audio(
             "grade": grade,
             "level": level,
             "duration": duration,
-            "metrics": metrics,
+            #"metrics": metrics,
             # ---------------- AUDIO METRICS ----------------
             "audio_metrics": metrics,
             # ---------------- EYE TRACKING METRICS ----------------
