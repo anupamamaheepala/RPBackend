@@ -201,6 +201,7 @@ def normalize_sinhala_word(word: str) -> str:
 
 #     return correct, incorrect
 
+
 def extract_word_errors(reference: str, transcript: str):
     ref_words = reference.strip().split()
     hyp_words = transcript.strip().split()
@@ -223,6 +224,56 @@ def extract_word_errors(reference: str, transcript: str):
 
     return correct, incorrect
 
+def clamp(value, min_value=0.0, max_value=1.0):
+    return max(min_value, min(value, max_value))
+
+
+def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
+    # ---------------- PHONOLOGICAL ----------------
+    accuracy = audio_metrics.get("accuracy_percent", 0)
+    wer = audio_metrics.get("wer", 100)
+
+    accuracy_risk = 1 - (accuracy / 100)
+    wer_risk = wer / 100
+    phonological_risk = (accuracy_risk + wer_risk) / 2
+
+    # ---------------- FLUENCY ----------------
+    wps = audio_metrics.get("words_per_second", 0) or 0
+    fluency_risk = clamp((2.5 - wps) / 2.5)
+
+    # ---------------- EYE TRACKING ----------------
+    avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
+    regression_count = eye_metrics.get("regression_count", 0)
+
+    fixation_risk = clamp((avg_fixation - 300) / 1200)
+    regression_risk = clamp(regression_count / 5)
+
+    eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+
+    # ---------------- FINAL SCORE ----------------
+    final_risk = (
+        0.35 * phonological_risk
+        + 0.25 * fluency_risk
+        + 0.40 * eye_risk
+    )
+
+    # ---------------- LEVEL ----------------
+    if final_risk <= 0.30:
+        level = "LOW"
+    elif final_risk <= 0.60:
+        level = "MEDIUM"
+    else:
+        level = "HIGH"
+
+    return {
+        "risk_score": round(final_risk, 3),
+        "risk_level": level,
+        "components": {
+            "phonological_risk": round(phonological_risk, 3),
+            "fluency_risk": round(fluency_risk, 3),
+            "eye_risk": round(eye_risk, 3),
+        },
+    }
 
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
@@ -344,6 +395,7 @@ async def submit_audio(
 
         # 5) Compute metrics
         metrics = compute_metrics(reference_text, transcript_text, duration)
+        dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
 
         eye_data = {}
 
@@ -372,6 +424,7 @@ async def submit_audio(
             "saccade_count": eye_data.get("saccade_count", 0),
             "blink_rate_per_min": eye_data.get("blink_rate_per_min", 0),
         },
+         "dyslexia_assessment": dyslexia_risk,
             "created_at": datetime.utcnow(),
         }
         reading_result = db["readings"].insert_one(reading_doc)
@@ -381,6 +434,7 @@ async def submit_audio(
             "reading_id": str(reading_result.inserted_id),
             "metrics": metrics,
             "eye_tracking": eye_data,
+            "dyslexia_assessment": dyslexia_risk,
         }
 
     except Exception as e:
