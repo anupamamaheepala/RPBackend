@@ -438,7 +438,7 @@ async def submit_audio(
             #"metrics": metrics,
             # ---------------- AUDIO METRICS ----------------
             "audio_id": str(audio_id),   
-            "audio_url": f"/audio/{audio_id}",  
+            "audio_url": f"http://localhost:8000/audio/{audio_id}",  
             "audio_metrics": metrics,
             # ---------------- EYE TRACKING METRICS ----------------
             "eye_tracking": {
