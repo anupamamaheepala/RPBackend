@@ -21,7 +21,8 @@ async def signup(user: UserCreate):
         "username": user.username,
         "password": hashed_password,
         "age": user.age,
-        "grade": user.grade
+        "grade": user.grade,
+        "avatar_image": "plogo1" # Default avatar on signup
     }
     
     result = db["users"].insert_one(user_doc)
@@ -42,7 +43,9 @@ async def login(user: UserLogin):
         "user_id": str(user_doc["_id"]),
         "username": user_doc["username"],
         "age": user_doc["age"],
-        "grade": user_doc["grade"]
+        "grade": user_doc["grade"],
+        # Return avatar_image, defaulting to "plogo1" if not found
+        "avatar_image": user_doc.get("avatar_image", "plogo1") 
     }
 
 # --- GET PROFILE ---
@@ -57,7 +60,8 @@ async def get_profile(user_id: str):
             "id": str(user_doc["_id"]),
             "username": user_doc["username"],
             "age": user_doc["age"],
-            "grade": user_doc["grade"]
+            "grade": user_doc["grade"],
+            "avatar_image": user_doc.get("avatar_image", "plogo1")
         }
     except:
          raise HTTPException(status_code=400, detail="Invalid User ID")
@@ -66,6 +70,7 @@ async def get_profile(user_id: str):
 @router.put("/auth/profile/{user_id}")
 async def update_profile(user_id: str, update_data: UserUpdate):
     try:
+        # Filter out None values so we only update what was sent
         update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
         
         if not update_dict:
@@ -76,8 +81,9 @@ async def update_profile(user_id: str, update_data: UserUpdate):
             {"$set": update_dict}
         )
         
-        if result.modified_count == 0:
-             raise HTTPException(status_code=404, detail="User not found or no changes made")
+        # Check if matched (even if no modification was needed)
+        if result.matched_count == 0:
+             raise HTTPException(status_code=404, detail="User not found")
 
         return {"ok": True, "message": "Profile updated successfully"}
     except Exception as e:
