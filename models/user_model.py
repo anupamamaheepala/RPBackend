@@ -1,0 +1,36 @@
+from pydantic import BaseModel, Field
+from typing import Optional
+from bson import ObjectId
+
+# Helper to handle MongoDB ObjectId
+class PyObjectId(ObjectId):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    @classmethod
+    def validate(cls, v):
+        if not ObjectId.is_valid(v):
+            raise ValueError("Invalid objectid")
+        return ObjectId(v)
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    age: int
+    grade: int
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    age: Optional[int] = None
+    grade: Optional[int] = None
+    # Add password update logic if needed, skipping for simplicity
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    age: int
+    grade: int
