@@ -1,6 +1,9 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
+from fastapi.responses import StreamingResponse
+from bson import ObjectId
+import io
 from routes.dyscalculia_routes import router as dyscalculia_router
 from routes.auth_routes import router as auth_router
 
@@ -12,6 +15,7 @@ from bson import Binary
 from openai import OpenAI
 import tempfile
 import os
+import json   # ✅ NEW
 
 from services.db_service import get_db
 from config.settings import settings
@@ -51,10 +55,27 @@ SINHALA_NORMALIZATION_MAP = {
     "ඤ": "ඥ",
 }
 
+
 def normalize_sinhala_word(word: str) -> str:
     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
         word = word.replace(src, tgt)
     return word
+
+
+# def extract_word_errors(reference: str, transcript: str):
+#     ref_words = reference.strip().split()
+#     hyp_words = transcript.strip().split()
+
+#     correct = []
+#     incorrect = []
+
+#     for i, ref_word in enumerate(ref_words):
+#         if i < len(hyp_words) and hyp_words[i] == ref_word:
+#             correct.append(ref_word)
+#         else:
+#             incorrect.append(ref_word)
+
+#     return correct, incorrect
 
 def extract_word_errors(reference: str, transcript: str):
     ref_words = reference.strip().split()
@@ -77,6 +98,55 @@ def extract_word_errors(reference: str, transcript: str):
             incorrect.append(ref_word)
 
     return correct, incorrect
+
+def clamp(value, min_value=0.0, max_value=1.0):
+    return max(min_value, min(value, max_value))
+
+
+def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
+    # ---------------- PHONOLOGICAL ----------------
+    accuracy = audio_metrics.get("accuracy_percent", 0)
+    wer = audio_metrics.get("wer", 100)
+
+    accuracy_risk = 1 - (accuracy / 100)
+    wer_risk = wer / 100
+    phonological_risk = (accuracy_risk + wer_risk) / 2
+
+    # ---------------- FLUENCY ----------------
+    wps = audio_metrics.get("words_per_second", 0) or 0
+    fluency_risk = clamp((2.5 - wps) / 2.5)
+
+    # ---------------- EYE TRACKING ----------------
+    avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
+    regression_count = eye_metrics.get("regression_count", 0)
+
+    fixation_risk = clamp((avg_fixation - 300) / 1200)
+    regression_risk = clamp(regression_count / 5)
+
+    eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+
+    # ---------------- FINAL SCORE ----------------
+    final_risk = (
+        0.35 * phonological_risk
+        + 0.25 * fluency_risk
+        + 0.40 * eye_risk
+    )
+
+    # ---------------- LEVEL ----------------
+    if final_risk <= 0.30:
+        level = "LOW"
+    elif final_risk <= 0.60:
+        level = "MEDIUM"
+    else:
+        level = "HIGH"
+
+    return {
+        "phonological_risk": round(phonological_risk, 3),
+        "fluency_risk": round(fluency_risk, 3),
+        "eye_risk": round(eye_risk, 3),
+        "risk_score": round(final_risk, 3),
+        "risk_level": level,
+    }
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
     reference = reference.strip()
@@ -108,8 +178,28 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "accuracy_percent": round(accuracy, 2),
         "wer": round(WER, 2),
         "words_per_second": speed,
-        "incorrect_words": incorrect_words_list,
+        "incorrect_words": ", ".join(incorrect_words_list),
+
     }
+
+#GET THE AUDIO LINK
+@app.get("/audio/{audio_id}")
+def get_audio(audio_id: str):
+    audio_doc = db["audio_files"].find_one(
+        {"_id": ObjectId(audio_id)}
+    )
+
+    if not audio_doc:
+        return {"ok": False, "error": "Audio not found"}
+
+    return StreamingResponse(
+        io.BytesIO(audio_doc["data"]),
+        media_type=audio_doc.get("content_type", "audio/wav"),
+        headers={
+            "Content-Disposition": f"inline; filename={audio_doc['filename']}"
+        }
+    )
+
 
 # -----------------------------
 # ROOT ENDPOINTS
@@ -136,11 +226,14 @@ def compare_text(body: CompareBody):
 # -----------------------------
 # DYSLEXIA: Audio Submission Endpoint
 @app.post("/dyslexia/submit-audio")
+
 async def submit_audio(
+    
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
     level: Optional[int] = Form(None),
+    eye_metrics: Optional[str] = Form(None), 
     file: UploadFile = File(...)
 ):
     """
@@ -185,6 +278,16 @@ async def submit_audio(
         # 5) Compute metrics
         metrics = compute_metrics(reference_text, transcript_text, duration)
 
+        eye_data = {}
+
+        if eye_metrics:
+           try:
+               eye_data = json.loads(eye_metrics)
+           except Exception:
+               eye_data = {}
+
+        dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
+
         # 6) Store reading result in MongoDB
         reading_doc = {
             "audio_file_id": audio_id,
@@ -193,7 +296,20 @@ async def submit_audio(
             "grade": grade,
             "level": level,
             "duration": duration,
-            "metrics": metrics,
+            #"metrics": metrics,
+            # ---------------- AUDIO METRICS ----------------
+            "audio_id": str(audio_id),   
+            "audio_url": f"http://localhost:8000/audio/{audio_id}",  
+            "audio_metrics": metrics,
+            # ---------------- EYE TRACKING METRICS ----------------
+            "eye_tracking": {
+            "fixation_count": eye_data.get("fixation_count", 0),
+            "avg_fixation_ms": eye_data.get("avg_fixation_ms", 0),
+            "regression_count": eye_data.get("regression_count", 0),
+            "saccade_count": eye_data.get("saccade_count", 0),
+            "blink_rate_per_min": eye_data.get("blink_rate_per_min", 0),
+        },
+         "dyslexia_assessment": dyslexia_risk,
             "created_at": datetime.utcnow(),
         }
         reading_result = db["readings"].insert_one(reading_doc)
@@ -202,6 +318,8 @@ async def submit_audio(
             "ok": True,
             "reading_id": str(reading_result.inserted_id),
             "metrics": metrics,
+            "eye_tracking": eye_data,
+            "dyslexia_assessment": dyslexia_risk,
         }
 
     except Exception as e:
