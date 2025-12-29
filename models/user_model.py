@@ -27,10 +27,11 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     age: Optional[int] = None
     grade: Optional[int] = None
-    # Add password update logic if needed, skipping for simplicity
+    avatar_image: Optional[str] = None  # <--- Added this field
 
 class UserResponse(BaseModel):
     id: str
     username: str
     age: int
     grade: int
+    avatar_image: Optional[str] = "plogo1" # <--- Added this field
