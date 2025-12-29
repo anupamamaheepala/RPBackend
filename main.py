@@ -1,143 +1,12 @@
-# # from fastapi import FastAPI, UploadFile, File, Form
-# from fastapi.middleware.cors import CORSMiddleware
-# from routes.dyslexia_routes import router as dyslexia_router
-# from docx import Document
-# #from routes import data
-# from pydantic import BaseModel
-# from typing import Optional
-# from jiwer import wer
-# import tempfile, os
-# #from routes.dyslexia_routes import router as dyslexia_router
-
-
-# app = FastAPI()
-# app.include_router(dyslexia_router)
-# #app.include_router(dyslexia_router)
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  # Allows all origins - you can specify domains later
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-
-# # ----- Reference Texts -----
-# TEXTS = [
-#     {"id": "t1", "lang": "si", "content": "අද අහස පැහැදිලි ය. ළමයා පොතක් කියවයි."},
-#     {"id": "t2", "lang": "en", "content": "The sky is clear today. The child reads a book."}
-# ]
- 
-# def read_docx(file_path: str):
-#     doc = Document(file_path)
-#     lines = []
-
-#     for para in doc.paragraphs:
-#         text = para.text.strip()
-#         if text:
-#             lines.append(text)
-
-#     return lines
-
-
-# def get_text(text_id: str):
-#     for t in TEXTS:
-#         if t["id"] == text_id:
-#             return t
-#     return None
-
-# # ----- Utility -----
-# def compute_metrics(reference: str, transcript: str, duration: Optional[float]):
-#     ref_words = reference.split()
-#     hyp_words = transcript.split()
-#     total_ref = len(ref_words)
-#     total_spoken = len(hyp_words)
-#     error_rate = wer(reference.lower(), transcript.lower())
-#     accuracy = max(0.0, 1 - error_rate) * 100
-#     correct_words = round(accuracy/100 * total_ref, 2)
-#     words_per_sec = None
-#     if duration:
-#         words_per_sec = round(total_spoken / duration, 2)
-#     return {
-#         "reference": reference,
-#         "transcript": transcript,
-#         "total_words": total_spoken,
-#         "correct_words": correct_words,
-#         "accuracy_percent": round(accuracy, 2),
-#         "wer": round(error_rate, 4),
-#         "words_per_second": words_per_sec
-#     }
-
-
-# # app.include_router(data.router)
-
-# # @app.get("/")
-# # def read_root():
-# #     return {"message": "Welcome to RP Backend!"}
-
-# # @app.get("/health")
-# # def health_check():
-# #     return {"status": "healthy", "service": "FastAPI Backend"}
-
-# # ----- API -----
-# @app.get("/texts")
-# def list_texts():
-#     return TEXTS
-
-# class CompareBody(BaseModel):
-#     text_id: str
-#     transcript: str
-#     duration: Optional[float] = None
-
-# @app.post("/dyslexia/compare")
-# def compare_text(body: CompareBody):
-#     text = get_text(body.text_id)
-#     if not text:
-#         return {"error": "Invalid text id"}
-#     metrics = compute_metrics(text["content"], body.transcript, body.duration)
-#     return {"ok": True, "metrics": metrics}
-
-# @app.post("/dyslexia/submit-audio")
-# async def submit_audio(
-#     text_id: str = Form(...),
-#     duration: Optional[float] = Form(None),
-#     file: UploadFile = File(...)
-# ):
-#     """Placeholder if you later enable transcription"""
-#     text = get_text(text_id)
-#     if not text:
-#         return {"error": "Invalid text id"}
-
-#     # Just save temporarily (no transcription yet)
-#     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-#         tmp.write(await file.read())
-#         tmp_path = tmp.name
-
-#     # For now, return mock result
-#     try:
-#         metrics = compute_metrics(text["content"], text["content"], duration)
-#         return {"ok": True, "metrics": metrics, "note": "Audio received (transcription disabled)"}
-#     finally:
-#         os.remove(tmp_path)
-
-
-
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 import io
+from routes.dyscalculia_routes import router as dyscalculia_router
+from routes.auth_routes import router as auth_router
+
 from pydantic import BaseModel
 from typing import Optional
 from jiwer import wer
@@ -154,17 +23,19 @@ from config.settings import settings
 # -----------------------------
 app = FastAPI(
     title="Reading Proficiency (RP) Backend",
-    description="API for dyslexia/reading assessment",
+    description="API for Dyslexia (Reading) and Dyscalculia (Math) assessment",
     version="1.0.0"
 )
 
-# Routers
+# --- REGISTER ROUTERS ---
 app.include_router(dyslexia_router)
+app.include_router(dyscalculia_router)
+app.include_router(auth_router)
 
-# CORS
+# --- CORS MIDDLEWARE ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],           # change to your Flutter origin in prod
+    allow_origins=["*"],  # Allows all origins (update for production)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -176,6 +47,7 @@ db = get_db()
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # -----------------------------
+# SINHALA NORMALIZATION LOGIC
 SINHALA_NORMALIZATION_MAP = {
     "ණ": "න",
     "ළ": "ල",
@@ -188,6 +60,7 @@ def normalize_sinhala_word(word: str) -> str:
     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
         word = word.replace(src, tgt)
     return word
+
 
 # def extract_word_errors(reference: str, transcript: str):
 #     ref_words = reference.strip().split()
@@ -203,7 +76,6 @@ def normalize_sinhala_word(word: str) -> str:
 #             incorrect.append(ref_word)
 
 #     return correct, incorrect
-
 
 def extract_word_errors(reference: str, transcript: str):
     ref_words = reference.strip().split()
@@ -276,7 +148,6 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
         "risk_level": level,
     }
 
-
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
     reference = reference.strip()
     transcript = transcript.strip()
@@ -285,19 +156,12 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         reference, transcript
     )
 
-    #error_rate = wer(reference.lower(), transcript.lower())
-    #WER = error_rate * 100
-    #accuracy = max(0.0, 1 - error_rate) * 100
-      #correct_words = round((accuracy / 100) * len(ref_words), 2)
- 
-   # words_per_sec = None
-   # if duration and duration > 0:
-   #    words_per_sec = round(len(transcript.split()) / duration, 2)
-
     ref_words = reference.split()
     hyp_words = transcript.split()
     total_words = len(ref_words)
     correct_words = len(correct_words_list)
+    
+    # Calculate Accuracy
     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
     error_rate = 100 - accuracy
     WER = error_rate
@@ -338,17 +202,17 @@ def get_audio(audio_id: str):
 
 
 # -----------------------------
-# Basic root endpoints
+# ROOT ENDPOINTS
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Reading Proficiency Backend!", "docs": "/docs"}
+    return {"message": "Welcome to RP Backend! Endpoints available for Dyslexia and Dyscalculia.", "docs": "/docs"}
 
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
 # -----------------------------
-# Compare endpoint (manual transcript)
+# DYSLEXIA: Manual Compare Endpoint
 class CompareBody(BaseModel):
     reference_text: str
     transcript: str
@@ -360,7 +224,7 @@ def compare_text(body: CompareBody):
     return {"ok": True, "metrics": metrics}
 
 # -----------------------------
-# MAIN endpoint used by Flutter
+# DYSLEXIA: Audio Submission Endpoint
 @app.post("/dyslexia/submit-audio")
 
 async def submit_audio(
@@ -373,13 +237,11 @@ async def submit_audio(
     file: UploadFile = File(...)
 ):
     """
-    Steps:
-    1. Read audio bytes
-    2. Store audio + metadata in MongoDB
-    3. Transcribe Sinhala audio (Whisper API)
-    4. Compute metrics vs reference_text
-    5. Store reading result in MongoDB
-    6. Return metrics to Flutter
+    Handles Dyslexia Audio:
+    1. Uploads audio
+    2. Transcribes via OpenAI Whisper
+    3. Computes accuracy metrics
+    4. Saves to MongoDB
     """
     # 1) Read bytes
     audio_bytes = await file.read()
@@ -404,13 +266,12 @@ async def submit_audio(
         tmp_path = tmp_file.name
 
     try:
-        # 4) Transcribe using Whisper (Sinhala)
+        # 4) Transcribe using Whisper (Sinhala supported via OpenAI)
         with open(tmp_path, "rb") as audio_file:
-           transcription = client.audio.transcriptions.create(
-    model="gpt-4o-transcribe",
-    file=audio_file
-)
-
+            transcription = client.audio.transcriptions.create(
+                model="gpt-4o-transcribe", # Ensure this model name is correct for your OpenAI access
+                file=audio_file
+            )
 
         transcript_text = transcription.text.strip()
 
