@@ -15,10 +15,13 @@ from bson import Binary
 from openai import OpenAI
 import tempfile
 import os
-import json   # ✅ NEW
+import json
 
 from services.db_service import get_db
 from config.settings import settings
+
+from services.auth_service import get_current_user
+from fastapi import Depends
 
 # -----------------------------
 app = FastAPI(
@@ -228,13 +231,14 @@ def compare_text(body: CompareBody):
 @app.post("/dyslexia/submit-audio")
 
 async def submit_audio(
-    
+    user=Depends(get_current_user()),
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
     level: Optional[int] = Form(None),
     eye_metrics: Optional[str] = Form(None), 
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    #username: str = Depends(get_current_user)
 ):
     """
     Handles Dyslexia Audio:
@@ -290,9 +294,12 @@ async def submit_audio(
 
         # 6) Store reading result in MongoDB
         reading_doc = {
+            "user_id": user["user_id"],      
+            "username": user["username"],
+            #"username": username,
             "audio_file_id": audio_id,
-            "reference_text": reference_text,
-            "transcript": transcript_text,
+            # "reference_text": reference_text,
+            # "transcript": transcript_text,
             "grade": grade,
             "level": level,
             "duration": duration,
