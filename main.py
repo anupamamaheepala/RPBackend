@@ -233,7 +233,7 @@ def compare_text(body: CompareBody):
 
 async def submit_audio(
     #user=Depends(get_current_user()),
-    username: str = Form(...),
+    #username: str = Form(...),
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
@@ -298,7 +298,7 @@ async def submit_audio(
         reading_doc = {
            # "user_id": user["user_id"],      
            # "username": user["username"],
-            "username": username,
+            #"username": username,
             "audio_file_id": audio_id,
             # "reference_text": reference_text,
             # "transcript": transcript_text,
