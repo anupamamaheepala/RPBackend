@@ -20,8 +20,7 @@ import json
 from services.db_service import get_db
 from config.settings import settings
 
-from services.auth_service import get_current_user
-from fastapi import Depends
+
 
 # -----------------------------
 app = FastAPI(
@@ -231,7 +230,7 @@ def compare_text(body: CompareBody):
 @app.post("/dyslexia/submit-audio")
 
 async def submit_audio(
-    user=Depends(get_current_user()),
+    #user=Depends(get_current_user()),
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
@@ -294,8 +293,8 @@ async def submit_audio(
 
         # 6) Store reading result in MongoDB
         reading_doc = {
-            "user_id": user["user_id"],      
-            "username": user["username"],
+           # "user_id": user["user_id"],      
+           # "username": user["username"],
             #"username": username,
             "audio_file_id": audio_id,
             # "reference_text": reference_text,
