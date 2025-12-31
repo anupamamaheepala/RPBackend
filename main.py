@@ -57,36 +57,16 @@ SINHALA_NORMALIZATION_MAP = {
     "ළ": "ල",
     "ශ": "ෂ",
     "ඤ": "ඥ",
+    "ග" : "ඟ",
+    "ලු" : "ළු"
 }
 
 
-# def normalize_sinhala_word(word: str) -> str:
-#     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
-#         word = word.replace(src, tgt)
-#     return word
-
-def normalize_sinhala_text(text: str) -> str:
-    text = text.replace(" ", "")  # Remove spaces in reference text
+def normalize_sinhala_word(word: str) -> str:
     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
-        text = text.replace(src, tgt)
-    return text
+        word = word.replace(src, tgt)
+    return word
 
-def smart_tokenize(text: str):
-    text = normalize_sinhala_text(text)
-    tokens = []
-    current = ""
-
-    for ch in text:
-        current += ch
-        # Heuristic Sinhala boundaries (vowel signs / endings)
-        if ch in ["හ", "ු", "ූ", "ි", "ී"]:
-            tokens.append(current)
-            current = ""
-
-    if current:
-        tokens.append(current)
-
-    return tokens
 
 # def extract_word_errors(reference: str, transcript: str):
 #     ref_words = reference.strip().split()
@@ -103,41 +83,25 @@ def smart_tokenize(text: str):
 
 #     return correct, incorrect
 
-# def extract_word_errors(reference: str, transcript: str):
-#     ref_words = reference.strip().split()
-#     hyp_words = transcript.strip().split()
-
-#     correct = []
-#     incorrect = []
-
-#     for i, ref_word in enumerate(ref_words):
-#         ref_norm = normalize_sinhala_word(ref_word)
-
-#         if i < len(hyp_words):
-#             hyp_norm = normalize_sinhala_word(hyp_words[i])
-
-#             if hyp_norm == ref_norm:
-#                 correct.append(ref_word)
-#             else:
-#                 incorrect.append(ref_word)
-#         else:
-#             incorrect.append(ref_word)
-
-#     return correct, incorrect
-
 def extract_word_errors(reference: str, transcript: str):
-    ref_norm = normalize_sinhala_text(reference)
-    hyp_norm = normalize_sinhala_text(transcript)
+    ref_words = reference.strip().split()
+    hyp_words = transcript.strip().split()
 
-    # Character-level comparison
     correct = []
     incorrect = []
 
-    if ref_norm == hyp_norm:
-        correct = reference.split()
-    else:
-        correct = []
-        incorrect = reference.split()
+    for i, ref_word in enumerate(ref_words):
+        ref_norm = normalize_sinhala_word(ref_word)
+
+        if i < len(hyp_words):
+            hyp_norm = normalize_sinhala_word(hyp_words[i])
+
+            if hyp_norm == ref_norm:
+                correct.append(ref_word)
+            else:
+                incorrect.append(ref_word)
+        else:
+            incorrect.append(ref_word)
 
     return correct, incorrect
 
@@ -191,75 +155,41 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
         "risk_level": level,
     }
 
-# def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
-#     reference = reference.strip()
-#     transcript = transcript.strip()
-
-#     correct_words_list, incorrect_words_list = extract_word_errors(
-#         reference, transcript
-#     )
-
-#     ref_words = reference.split()
-#     hyp_words = transcript.split()
-#     total_words = len(ref_words)
-#     correct_words = len(correct_words_list)
-    
-#     # Calculate Accuracy
-#     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
-#     error_rate = 100 - accuracy
-#     WER = error_rate
-  
-#     speed = None
-#     if duration and duration > 0:
-#         speed = round(len(hyp_words) / duration, 2)
-
-#     return {
-#         "reference": reference,
-#         "transcript": transcript,
-#         "total_words": total_words,
-#         "correct_words": correct_words,
-#         "accuracy_percent": round(accuracy, 2),
-#         "wer": round(WER, 2),
-#         "words_per_second": speed,
-#         "incorrect_words": ", ".join(incorrect_words_list),
-
-#     }
-
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
-    # Tokenize using Sinhala-safe tokenizer
-    ref_tokens = smart_tokenize(reference)
-    hyp_tokens = smart_tokenize(transcript)
+    reference = reference.strip()
+    transcript = transcript.strip()
 
-    total_tokens = len(ref_tokens)
-    correct_tokens = 0
+    correct_words_list, incorrect_words_list = extract_word_errors(
+        reference, transcript
+    )
 
-    incorrect_tokens = []
-
-    for i, ref_tok in enumerate(ref_tokens):
-        if i < len(hyp_tokens) and hyp_tokens[i] == ref_tok:
-            correct_tokens += 1
-        else:
-            incorrect_tokens.append(ref_tok)
-
-    # Accuracy
-    accuracy = (correct_tokens / total_tokens) * 100 if total_tokens > 0 else 0.0
-    wer = 100 - accuracy
-
-    # Speed (words/sec stays as-is – good metric)
+    ref_words = reference.split()
+    hyp_words = transcript.split()
+    total_words = len(ref_words)
+    correct_words = len(correct_words_list)
+    
+    # Calculate Accuracy
+    accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
+    error_rate = 100 - accuracy
+    WER = error_rate
+  
     speed = None
     if duration and duration > 0:
-        speed = round(len(hyp_tokens) / duration, 2)
+        speed = round(len(hyp_words) / duration, 2)
 
     return {
         "reference": reference,
         "transcript": transcript,
-        "total_words": total_tokens,            # now token count
-        "correct_words": correct_tokens,         # token-based
+        "total_words": total_words,
+        "correct_words": correct_words,
         "accuracy_percent": round(accuracy, 2),
-        "wer": round(wer, 2),
+        "wer": round(WER, 2),
         "words_per_second": speed,
-        "incorrect_words": ", ".join(incorrect_tokens),
+        "incorrect_words": ", ".join(incorrect_words_list),
+
     }
+
+
 
 
 #GET THE AUDIO LINK
