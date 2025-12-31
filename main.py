@@ -191,39 +191,76 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
         "risk_level": level,
     }
 
-def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
-    reference = reference.strip()
-    transcript = transcript.strip()
+# def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
+#     reference = reference.strip()
+#     transcript = transcript.strip()
 
-    correct_words_list, incorrect_words_list = extract_word_errors(
-        reference, transcript
-    )
+#     correct_words_list, incorrect_words_list = extract_word_errors(
+#         reference, transcript
+#     )
 
-    ref_words = reference.split()
-    hyp_words = transcript.split()
-    total_words = len(ref_words)
-    correct_words = len(correct_words_list)
+#     ref_words = reference.split()
+#     hyp_words = transcript.split()
+#     total_words = len(ref_words)
+#     correct_words = len(correct_words_list)
     
-    # Calculate Accuracy
-    accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
-    error_rate = 100 - accuracy
-    WER = error_rate
+#     # Calculate Accuracy
+#     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
+#     error_rate = 100 - accuracy
+#     WER = error_rate
   
+#     speed = None
+#     if duration and duration > 0:
+#         speed = round(len(hyp_words) / duration, 2)
+
+#     return {
+#         "reference": reference,
+#         "transcript": transcript,
+#         "total_words": total_words,
+#         "correct_words": correct_words,
+#         "accuracy_percent": round(accuracy, 2),
+#         "wer": round(WER, 2),
+#         "words_per_second": speed,
+#         "incorrect_words": ", ".join(incorrect_words_list),
+
+#     }
+
+def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
+    # Tokenize using Sinhala-safe tokenizer
+    ref_tokens = smart_tokenize(reference)
+    hyp_tokens = smart_tokenize(transcript)
+
+    total_tokens = len(ref_tokens)
+    correct_tokens = 0
+
+    incorrect_tokens = []
+
+    for i, ref_tok in enumerate(ref_tokens):
+        if i < len(hyp_tokens) and hyp_tokens[i] == ref_tok:
+            correct_tokens += 1
+        else:
+            incorrect_tokens.append(ref_tok)
+
+    # Accuracy
+    accuracy = (correct_tokens / total_tokens) * 100 if total_tokens > 0 else 0.0
+    wer = 100 - accuracy
+
+    # Speed (words/sec stays as-is – good metric)
     speed = None
     if duration and duration > 0:
-        speed = round(len(hyp_words) / duration, 2)
+        speed = round(len(hyp_tokens) / duration, 2)
 
     return {
         "reference": reference,
         "transcript": transcript,
-        "total_words": total_words,
-        "correct_words": correct_words,
+        "total_words": total_tokens,            # now token count
+        "correct_words": correct_tokens,         # token-based
         "accuracy_percent": round(accuracy, 2),
-        "wer": round(WER, 2),
+        "wer": round(wer, 2),
         "words_per_second": speed,
-        "incorrect_words": ", ".join(incorrect_words_list),
-
+        "incorrect_words": ", ".join(incorrect_tokens),
     }
+
 
 #GET THE AUDIO LINK
 @app.get("/audio/{audio_id}")
