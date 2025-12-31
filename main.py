@@ -60,11 +60,33 @@ SINHALA_NORMALIZATION_MAP = {
 }
 
 
-def normalize_sinhala_word(word: str) -> str:
-    for src, tgt in SINHALA_NORMALIZATION_MAP.items():
-        word = word.replace(src, tgt)
-    return word
+# def normalize_sinhala_word(word: str) -> str:
+#     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
+#         word = word.replace(src, tgt)
+#     return word
 
+def normalize_sinhala_text(text: str) -> str:
+    text = text.replace(" ", "")  # Remove spaces in reference text
+    for src, tgt in SINHALA_NORMALIZATION_MAP.items():
+        text = text.replace(src, tgt)
+    return text
+
+def smart_tokenize(text: str):
+    text = normalize_sinhala_text(text)
+    tokens = []
+    current = ""
+
+    for ch in text:
+        current += ch
+        # Heuristic Sinhala boundaries (vowel signs / endings)
+        if ch in ["හ", "ු", "ූ", "ි", "ී"]:
+            tokens.append(current)
+            current = ""
+
+    if current:
+        tokens.append(current)
+
+    return tokens
 
 # def extract_word_errors(reference: str, transcript: str):
 #     ref_words = reference.strip().split()
@@ -81,27 +103,44 @@ def normalize_sinhala_word(word: str) -> str:
 
 #     return correct, incorrect
 
-def extract_word_errors(reference: str, transcript: str):
-    ref_words = reference.strip().split()
-    hyp_words = transcript.strip().split()
+# def extract_word_errors(reference: str, transcript: str):
+#     ref_words = reference.strip().split()
+#     hyp_words = transcript.strip().split()
 
+#     correct = []
+#     incorrect = []
+
+#     for i, ref_word in enumerate(ref_words):
+#         ref_norm = normalize_sinhala_word(ref_word)
+
+#         if i < len(hyp_words):
+#             hyp_norm = normalize_sinhala_word(hyp_words[i])
+
+#             if hyp_norm == ref_norm:
+#                 correct.append(ref_word)
+#             else:
+#                 incorrect.append(ref_word)
+#         else:
+#             incorrect.append(ref_word)
+
+#     return correct, incorrect
+
+def extract_word_errors(reference: str, transcript: str):
+    ref_norm = normalize_sinhala_text(reference)
+    hyp_norm = normalize_sinhala_text(transcript)
+
+    # Character-level comparison
     correct = []
     incorrect = []
 
-    for i, ref_word in enumerate(ref_words):
-        ref_norm = normalize_sinhala_word(ref_word)
-
-        if i < len(hyp_words):
-            hyp_norm = normalize_sinhala_word(hyp_words[i])
-
-            if hyp_norm == ref_norm:
-                correct.append(ref_word)
-            else:
-                incorrect.append(ref_word)
-        else:
-            incorrect.append(ref_word)
+    if ref_norm == hyp_norm:
+        correct = reference.split()
+    else:
+        correct = []
+        incorrect = reference.split()
 
     return correct, incorrect
+
 
 def clamp(value, min_value=0.0, max_value=1.0):
     return max(min_value, min(value, max_value))
