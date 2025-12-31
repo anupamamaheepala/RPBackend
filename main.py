@@ -57,6 +57,8 @@ SINHALA_NORMALIZATION_MAP = {
     "ළ": "ල",
     "ශ": "ෂ",
     "ඤ": "ඥ",
+    "ග" : "ඟ",
+    "ලු" : "ළු"
 }
 
 
@@ -102,6 +104,7 @@ def extract_word_errors(reference: str, transcript: str):
             incorrect.append(ref_word)
 
     return correct, incorrect
+
 
 def clamp(value, min_value=0.0, max_value=1.0):
     return max(min_value, min(value, max_value))
@@ -185,6 +188,9 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "incorrect_words": ", ".join(incorrect_words_list),
 
     }
+
+
+
 
 #GET THE AUDIO LINK
 @app.get("/audio/{audio_id}")
