@@ -20,7 +20,7 @@ from services.db_service import get_db
 from config.settings import settings
 import re
 from difflib import SequenceMatcher
-
+import re
 # -----------------------------
 app = FastAPI(
     title="Reading Proficiency (RP) Backend",
@@ -102,11 +102,58 @@ def extract_word_errors(reference: str, transcript: str):
 
     return correct, incorrect
 
+def clamp(value, min_value=0.0, max_value=1.0):
+    return max(min_value, min(value, max_value))
+
 def char_error_rate(reference: str, transcript: str):
     r = " ".join(list(compact_sinhala(reference)))
     h = " ".join(list(compact_sinhala(transcript)))
     return wer(r, h) * 100
 
+def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
+    # ---------------- PHONOLOGICAL ----------------
+    accuracy = audio_metrics.get("accuracy_percent", 0)
+    wer = audio_metrics.get("wer", 100)
+
+    accuracy_risk = 1 - (accuracy / 100)
+    wer_risk = wer / 100
+    phonological_risk = (accuracy_risk + wer_risk) / 2
+
+    # ---------------- FLUENCY ----------------
+    wps = audio_metrics.get("words_per_second", 0) or 0
+    fluency_risk = clamp((2.5 - wps) / 2.5)
+
+    # ---------------- EYE TRACKING ----------------
+    avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
+    regression_count = eye_metrics.get("regression_count", 0)
+
+    fixation_risk = clamp((avg_fixation - 300) / 1200)
+    regression_risk = clamp(regression_count / 5)
+
+    eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+
+    # ---------------- FINAL SCORE ----------------
+    final_risk = (
+        0.35 * phonological_risk
+        + 0.25 * fluency_risk
+        + 0.40 * eye_risk
+    )
+
+    # ---------------- LEVEL ----------------
+    if final_risk <= 0.30:
+        level = "LOW"
+    elif final_risk <= 0.60:
+        level = "MEDIUM"
+    else:
+        level = "HIGH"
+
+    return {
+        "phonological_risk": round(phonological_risk, 3),
+        "fluency_risk": round(fluency_risk, 3),
+        "eye_risk": round(eye_risk, 3),
+        "risk_score": round(final_risk, 3),
+        "risk_level": level,
+    }
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
     reference = normalize_sinhala_text(reference)
