@@ -65,6 +65,12 @@ SINHALA_NORMALIZATION_MAP = {
 
 }
 
+def compact_sinhala(text: str) -> str:
+    text = normalize_sinhala_text(text)
+    # remove punctuation and spaces
+    text = re.sub(r"[^\u0D80-\u0DFF]", "", text)  # keep Sinhala block only
+    return text
+
 def normalize_sinhala_text(text: str) -> str:
     text = text.strip()
     text = re.sub(r"\s+", " ", text)  # normalize spaces
@@ -79,70 +85,28 @@ def extract_word_errors(reference: str, transcript: str):
     hyp = normalize_sinhala_text(transcript)
 
     ref_words = ref.split()
-    hyp_words = hyp.split()
+    hyp_compact = compact_sinhala(hyp)
 
-    matcher = SequenceMatcher(None, ref_words, hyp_words)
+    correct, incorrect = [], []
+    pos = 0
 
-    correct = []
-    incorrect = []
+    for w in ref_words:
+        w_comp = compact_sinhala(w)
+        idx = hyp_compact.find(w_comp, pos)
 
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            correct.extend(ref_words[i1:i2])
+        if idx != -1:
+            correct.append(w)
+            pos = idx + len(w_comp)   # move forward (keeps order)
         else:
-            incorrect.extend(ref_words[i1:i2])
+            incorrect.append(w)
 
     return correct, incorrect
 
+def char_error_rate(reference: str, transcript: str):
+    r = " ".join(list(compact_sinhala(reference)))
+    h = " ".join(list(compact_sinhala(transcript)))
+    return wer(r, h) * 100
 
-def clamp(value, min_value=0.0, max_value=1.0):
-    return max(min_value, min(value, max_value))
-
-
-def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
-    # ---------------- PHONOLOGICAL ----------------
-    accuracy = audio_metrics.get("accuracy_percent", 0)
-    wer = audio_metrics.get("wer", 100)
-
-    accuracy_risk = 1 - (accuracy / 100)
-    wer_risk = wer / 100
-    phonological_risk = (accuracy_risk + wer_risk) / 2
-
-    # ---------------- FLUENCY ----------------
-    wps = audio_metrics.get("words_per_second", 0) or 0
-    fluency_risk = clamp((2.5 - wps) / 2.5)
-
-    # ---------------- EYE TRACKING ----------------
-    avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
-    regression_count = eye_metrics.get("regression_count", 0)
-
-    fixation_risk = clamp((avg_fixation - 300) / 1200)
-    regression_risk = clamp(regression_count / 5)
-
-    eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
-
-    # ---------------- FINAL SCORE ----------------
-    final_risk = (
-        0.35 * phonological_risk
-        + 0.25 * fluency_risk
-        + 0.40 * eye_risk
-    )
-
-    # ---------------- LEVEL ----------------
-    if final_risk <= 0.30:
-        level = "LOW"
-    elif final_risk <= 0.60:
-        level = "MEDIUM"
-    else:
-        level = "HIGH"
-
-    return {
-        "phonological_risk": round(phonological_risk, 3),
-        "fluency_risk": round(fluency_risk, 3),
-        "eye_risk": round(eye_risk, 3),
-        "risk_score": round(final_risk, 3),
-        "risk_level": level,
-    }
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
     reference = normalize_sinhala_text(reference)
@@ -160,7 +124,11 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
 
     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
 
+    # ✅ Word Error Rate
     true_wer = wer(reference, transcript) * 100
+
+    # ✅ Character Error Rate
+    cer = char_error_rate(reference, transcript)
 
     speed = None
     if duration and duration > 0:
@@ -173,6 +141,7 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "correct_words": correct_words,
         "accuracy_percent": round(accuracy, 2),
         "wer": round(true_wer, 2),
+        "cer": round(cer, 2),   # 🔥 NEW
         "words_per_second": speed,
         "incorrect_words": incorrect_words_list,
     }
