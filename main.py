@@ -135,6 +135,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
+from routes.adhd_routes import router as adhd_router
 
 from pydantic import BaseModel
 from typing import Optional
@@ -157,6 +158,7 @@ app = FastAPI(
 
 # Routers
 app.include_router(dyslexia_router)
+app.include_router(adhd_router)
 
 # CORS
 app.add_middleware(
