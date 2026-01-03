@@ -21,7 +21,10 @@ from config.settings import settings
 import re
 from difflib import SequenceMatcher
 import re
+from jiwer import wer as jiwer_wer
+
 # -----------------------------
+
 app = FastAPI(
     title="Reading Proficiency (RP) Backend",
     description="API for Dyslexia (Reading) and Dyscalculia (Math) assessment",
@@ -181,7 +184,18 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
 
     # ✅ Word Error Rate
-    true_wer = wer(reference, transcript) * 100
+    true_wer = jiwer_wer(reference, transcript) * 100
+
+    if correct_words == total_words:
+       true_wer = 0
+
+    if total_words <= 5:
+       true_wer = min(true_wer, 10)
+
+    accuracy_based_wer = (1 - (correct_words / total_words)) * 100
+
+    if abs(true_wer - accuracy_based_wer) > 30:
+       true_wer = accuracy_based_wer
 
     # ✅ Character Error Rate
     cer = char_error_rate(reference, transcript)
@@ -197,7 +211,7 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "correct_words": correct_words,
         "accuracy_percent": round(accuracy, 2),
         "wer": round(true_wer, 2),
-        "cer": round(cer, 2),   # 🔥 NEW
+        "cer": round(cer, 2),
         "words_per_second": speed,
         "incorrect_words": ", ".join(incorrect_words_list),
     }
