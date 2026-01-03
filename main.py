@@ -115,6 +115,9 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     accuracy = audio_metrics.get("accuracy_percent", 0)
     wer = audio_metrics.get("wer", 100)
 
+    if audio_metrics.get("correct_words") == audio_metrics.get("total_words"):
+        wer = 0
+
     accuracy_risk = 1 - (accuracy / 100)
     wer_risk = wer / 100
     phonological_risk = (accuracy_risk + wer_risk) / 2
@@ -126,11 +129,17 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     # ---------------- EYE TRACKING ----------------
     avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
     regression_count = eye_metrics.get("regression_count", 0)
+    word_count = audio_metrics.get("total_words", 0)
 
-    fixation_risk = clamp((avg_fixation - 300) / 1200)
-    regression_risk = clamp(regression_count / 5)
-
-    eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+    if word_count <= 5:
+    # Very short sentence → eye tracking unreliable
+       eye_risk = 0.2
+    else:
+      fixation_risk = clamp((avg_fixation - 300) / 1200)
+      regression_risk = clamp(regression_count / 5)
+      eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+      if audio_metrics.get("accuracy_percent", 0) >= 95 and regression_count == 0:
+        eye_risk = min(eye_risk, 0.3)
 
     # ---------------- FINAL SCORE ----------------
     final_risk = (
