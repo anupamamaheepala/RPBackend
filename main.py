@@ -190,7 +190,7 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "wer": round(true_wer, 2),
         "cer": round(cer, 2),   # 🔥 NEW
         "words_per_second": speed,
-        "incorrect_words": incorrect_words_list,
+        "incorrect_words": ", ".join(incorrect_words_list),
     }
 
 
