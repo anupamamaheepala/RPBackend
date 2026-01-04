@@ -6,7 +6,8 @@ from fastapi.responses import StreamingResponse
 from bson import ObjectId
 import io
 from routes.dyscalculia_routes import router as dyscalculia_router
-from routes.auth_routes import router as auth_router
+from routes.auth_routes import router as auth_routerfrom routes.adhd_routes import router as adhd_router
+
 from pydantic import BaseModel
 from typing import Optional
 from jiwer import wer
@@ -15,10 +16,11 @@ from bson import Binary
 from openai import OpenAI
 import tempfile
 import os
-import json  
-
+import json
 from services.db_service import get_db
 from config.settings import settings
+
+
 
 # -----------------------------
 app = FastAPI(
@@ -29,6 +31,7 @@ app = FastAPI(
 
 # --- REGISTER ROUTERS ---
 app.include_router(dyslexia_router)
+app.include_router(adhd_router)
 
 app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
@@ -56,6 +59,8 @@ SINHALA_NORMALIZATION_MAP = {
     "ළ": "ල",
     "ශ": "ෂ",
     "ඤ": "ඥ",
+    "ග" : "ඟ",
+    "ලු" : "ළු"
 }
 
 
@@ -101,6 +106,7 @@ def extract_word_errors(reference: str, transcript: str):
             incorrect.append(ref_word)
 
     return correct, incorrect
+
 
 def clamp(value, min_value=0.0, max_value=1.0):
     return max(min_value, min(value, max_value))
@@ -185,6 +191,9 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
 
     }
 
+
+
+
 #GET THE AUDIO LINK
 @app.get("/audio/{audio_id}")
 def get_audio(audio_id: str):
@@ -231,13 +240,16 @@ def compare_text(body: CompareBody):
 @app.post("/dyslexia/submit-audio")
 
 async def submit_audio(
-    
+    #user=Depends(get_current_user()),
+    username: str = Form(...),
+    user_id: Optional[str] = Form(None),
     reference_text: str = Form(...),
     duration: Optional[float] = Form(None),
     grade: Optional[int] = Form(None),
     level: Optional[int] = Form(None),
     eye_metrics: Optional[str] = Form(None), 
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    #username: str = Depends(get_current_user)
 ):
     """
     Handles Dyslexia Audio:
@@ -293,9 +305,13 @@ async def submit_audio(
 
         # 6) Store reading result in MongoDB
         reading_doc = {
+           # "user_id": user["user_id"],      
+           # "username": user["username"],
+            "username": username,
+            "user_id": user_id,
             "audio_file_id": audio_id,
-            "reference_text": reference_text,
-            "transcript": transcript_text,
+            # "reference_text": reference_text,
+            # "transcript": transcript_text,
             "grade": grade,
             "level": level,
             "duration": duration,
