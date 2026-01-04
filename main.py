@@ -25,6 +25,9 @@ import re
 from difflib import SequenceMatcher
 import re
 from jiwer import wer as jiwer_wer
+
+from models.dyslexia.predict import predict_dyslexia_risk_ml
+
 # -----------------------------
 
 app = FastAPI(
@@ -324,7 +327,17 @@ async def submit_audio(
            except Exception:
                eye_data = {}
 
-        dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
+        ##dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
+        try:
+          dyslexia_risk = predict_dyslexia_risk_ml(
+             audio_metrics=metrics,
+             eye_metrics=eye_data,
+             duration=duration
+            )
+        except Exception as e:
+          dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
+          dyslexia_risk["method"] = "RULE_BASED"
+
 
         # 6) Store reading result in MongoDB
         reading_doc = {
