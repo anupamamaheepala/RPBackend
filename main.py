@@ -9,8 +9,7 @@ from bson import ObjectId
 import io
 from routes.dyscalculia_routes import router as dyscalculia_router
 from routes.auth_routes import router as auth_router
-
-
+from routes.adhd_routes import router as adhd_router
 from pydantic import BaseModel
 from typing import Optional
 from jiwer import wer
@@ -26,9 +25,8 @@ import re
 from difflib import SequenceMatcher
 import re
 from jiwer import wer as jiwer_wer
-
-
 # -----------------------------
+
 app = FastAPI(
     title="Reading Proficiency (RP) Backend",
     description="API for Dyslexia (Reading) and Dyscalculia (Math) assessment",
@@ -66,62 +64,65 @@ SINHALA_NORMALIZATION_MAP = {
     "ශ": "ෂ",
     "ඤ": "ඥ",
     "ග" : "ඟ",
-    "ලු" : "ළු"
+    "ලු" : "ළු",
+    "ද්‍යා" : "ද්යා",
+    "ඨ" : "ට",
+    "න්‍ය" : "න්ය",
+
 }
 
+def compact_sinhala(text: str) -> str:
+    text = normalize_sinhala_text(text)
+    # remove punctuation and spaces
+    text = re.sub(r"[^\u0D80-\u0DFF]", "", text)  # keep Sinhala block only
+    return text
 
-def normalize_sinhala_word(word: str) -> str:
+def normalize_sinhala_text(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"\s+", " ", text)  # normalize spaces
+
     for src, tgt in SINHALA_NORMALIZATION_MAP.items():
-        word = word.replace(src, tgt)
-    return word
+        text = text.replace(src, tgt)
 
-
-# def extract_word_errors(reference: str, transcript: str):
-#     ref_words = reference.strip().split()
-#     hyp_words = transcript.strip().split()
-
-#     correct = []
-#     incorrect = []
-
-#     for i, ref_word in enumerate(ref_words):
-#         if i < len(hyp_words) and hyp_words[i] == ref_word:
-#             correct.append(ref_word)
-#         else:
-#             incorrect.append(ref_word)
-
-#     return correct, incorrect
+    return text
 
 def extract_word_errors(reference: str, transcript: str):
-    ref_words = reference.strip().split()
-    hyp_words = transcript.strip().split()
+    ref = normalize_sinhala_text(reference)
+    hyp = normalize_sinhala_text(transcript)
 
-    correct = []
-    incorrect = []
+    ref_words = ref.split()
+    hyp_compact = compact_sinhala(hyp)
 
-    for i, ref_word in enumerate(ref_words):
-        ref_norm = normalize_sinhala_word(ref_word)
+    correct, incorrect = [], []
+    pos = 0
 
-        if i < len(hyp_words):
-            hyp_norm = normalize_sinhala_word(hyp_words[i])
+    for w in ref_words:
+        w_comp = compact_sinhala(w)
+        idx = hyp_compact.find(w_comp, pos)
 
-            if hyp_norm == ref_norm:
-                correct.append(ref_word)
-            else:
-                incorrect.append(ref_word)
+        if idx != -1:
+            correct.append(w)
+            pos = idx + len(w_comp)   # move forward (keeps order)
         else:
-            incorrect.append(ref_word)
+            incorrect.append(w)
 
     return correct, incorrect
-
 
 def clamp(value, min_value=0.0, max_value=1.0):
     return max(min_value, min(value, max_value))
 
+def char_error_rate(reference: str, transcript: str):
+    r = " ".join(list(compact_sinhala(reference)))
+    h = " ".join(list(compact_sinhala(transcript)))
+    return wer(r, h) * 100
 
 def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     # ---------------- PHONOLOGICAL ----------------
     accuracy = audio_metrics.get("accuracy_percent", 0)
     wer = audio_metrics.get("wer", 100)
+
+    if audio_metrics.get("correct_words") == audio_metrics.get("total_words"):
+        wer = 0
 
     accuracy_risk = 1 - (accuracy / 100)
     wer_risk = wer / 100
@@ -134,11 +135,17 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     # ---------------- EYE TRACKING ----------------
     avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
     regression_count = eye_metrics.get("regression_count", 0)
+    word_count = audio_metrics.get("total_words", 0)
 
-    fixation_risk = clamp((avg_fixation - 300) / 1200)
-    regression_risk = clamp(regression_count / 5)
-
-    eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+    if word_count <= 5:
+    # Very short sentence → eye tracking unreliable
+       eye_risk = 0.2
+    else:
+      fixation_risk = clamp((avg_fixation - 300) / 1200)
+      regression_risk = clamp(regression_count / 5)
+      eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
+      if audio_metrics.get("accuracy_percent", 0) >= 95 and regression_count == 0:
+        eye_risk = min(eye_risk, 0.3)
 
     # ---------------- FINAL SCORE ----------------
     final_risk = (
@@ -164,8 +171,8 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     }
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
-    reference = reference.strip()
-    transcript = transcript.strip()
+    reference = normalize_sinhala_text(reference)
+    transcript = normalize_sinhala_text(transcript)
 
     correct_words_list, incorrect_words_list = extract_word_errors(
         reference, transcript
@@ -173,14 +180,29 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
 
     ref_words = reference.split()
     hyp_words = transcript.split()
+
     total_words = len(ref_words)
     correct_words = len(correct_words_list)
-    
-    # Calculate Accuracy
+
     accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0.0
-    error_rate = 100 - accuracy
-    WER = error_rate
-  
+
+    # ✅ Word Error Rate
+    true_wer = jiwer_wer(reference, transcript) * 100
+
+    if correct_words == total_words:
+       true_wer = 0
+
+    if total_words <= 5:
+       true_wer = min(true_wer, 10)
+
+    accuracy_based_wer = (1 - (correct_words / total_words)) * 100
+
+    if abs(true_wer - accuracy_based_wer) > 30:
+       true_wer = accuracy_based_wer
+
+    # ✅ Character Error Rate
+    cer = char_error_rate(reference, transcript)
+
     speed = None
     if duration and duration > 0:
         speed = round(len(hyp_words) / duration, 2)
@@ -191,13 +213,11 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "total_words": total_words,
         "correct_words": correct_words,
         "accuracy_percent": round(accuracy, 2),
-        "wer": round(WER, 2),
+        "wer": round(true_wer, 2),
+        "cer": round(cer, 2),
         "words_per_second": speed,
         "incorrect_words": ", ".join(incorrect_words_list),
-
     }
-
-
 
 
 #GET THE AUDIO LINK
@@ -241,12 +261,10 @@ def compare_text(body: CompareBody):
     metrics = compute_metrics(body.reference_text, body.transcript, body.duration)
     return {"ok": True, "metrics": metrics}
 
-# -----------------------------
 # DYSLEXIA: Audio Submission Endpoint
 @app.post("/dyslexia/submit-audio")
 
 async def submit_audio(
-    #user=Depends(get_current_user()),
     username: str = Form(...),
     user_id: Optional[str] = Form(None),
     reference_text: str = Form(...),
@@ -255,7 +273,6 @@ async def submit_audio(
     level: Optional[int] = Form(None),
     eye_metrics: Optional[str] = Form(None), 
     file: UploadFile = File(...),
-    #username: str = Depends(get_current_user)
 ):
     """
     Handles Dyslexia Audio:
@@ -311,8 +328,6 @@ async def submit_audio(
 
         # 6) Store reading result in MongoDB
         reading_doc = {
-           # "user_id": user["user_id"],      
-           # "username": user["username"],
             "username": username,
             "user_id": user_id,
             "audio_file_id": audio_id,
@@ -321,7 +336,6 @@ async def submit_audio(
             "grade": grade,
             "level": level,
             "duration": duration,
-            #"metrics": metrics,
             # ---------------- AUDIO METRICS ----------------
             "audio_id": str(audio_id),   
             "audio_url": f"http://localhost:8000/audio/{audio_id}",  
@@ -353,4 +367,4 @@ async def submit_audio(
     finally:
         # Clean temp file
         if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+            os.unlink(tmp_path)	
