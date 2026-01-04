@@ -2,11 +2,13 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
 from routes.dysgraphia_routes import router as dysgraphia_router
+import routes.adhd_routes as adhd_router
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 import io
 from routes.dyscalculia_routes import router as dyscalculia_router
-from routes.auth_routes import router as auth_routerfrom routes.adhd_routes import router as adhd_router
+from routes.auth_routes import router as auth_router
+
 
 from pydantic import BaseModel
 from typing import Optional
@@ -19,7 +21,10 @@ import os
 import json
 from services.db_service import get_db
 from config.settings import settings
-
+import re
+from difflib import SequenceMatcher
+import re
+from jiwer import wer as jiwer_wer
 
 
 # -----------------------------
