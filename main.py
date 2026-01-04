@@ -2,7 +2,8 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from routes.dyslexia_routes import router as dyslexia_router
 from routes.dysgraphia_routes import router as dysgraphia_router
-import routes.adhd_routes as adhd_router
+from routes.adhd_routes import router as adhd_router
+
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 import io
