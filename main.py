@@ -108,8 +108,11 @@ def extract_word_errors(reference: str, transcript: str):
 
     return correct, incorrect
 
-def clamp(value, min_value=0.0, max_value=1.0):
-    return max(min_value, min(value, max_value))
+# def clamp(value, min_value=0.0, max_value=1.0):
+#     return max(min_value, min(value, max_value))
+
+def clamp(x, min_val=0.0, max_val=1.0):
+    return max(min_val, min(x, max_val))
 
 def char_error_rate(reference: str, transcript: str):
     r = " ".join(list(compact_sinhala(reference)))
@@ -117,57 +120,87 @@ def char_error_rate(reference: str, transcript: str):
     return wer(r, h) * 100
 
 def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
-    # ---------------- PHONOLOGICAL ----------------
+    # ================= PHONOLOGICAL =================
     accuracy = audio_metrics.get("accuracy_percent", 0)
     wer = audio_metrics.get("wer", 100)
 
-    if audio_metrics.get("correct_words") == audio_metrics.get("total_words"):
+    total_words = audio_metrics.get("total_words", 0)
+    correct_words = audio_metrics.get("correct_words", 0)
+
+    # Perfect reading → no phonological risk
+    if total_words > 0 and correct_words == total_words:
         wer = 0
 
     accuracy_risk = 1 - (accuracy / 100)
     wer_risk = wer / 100
-    phonological_risk = (accuracy_risk + wer_risk) / 2
 
-    # ---------------- FLUENCY ----------------
-    wps = audio_metrics.get("words_per_second", 0) or 0
-    fluency_risk = clamp((2.5 - wps) / 2.5)
-
-    # ---------------- EYE TRACKING ----------------
-    avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
-    regression_count = eye_metrics.get("regression_count", 0)
-    word_count = audio_metrics.get("total_words", 0)
-
-    if word_count <= 5:
-    # Very short sentence → eye tracking unreliable
-       eye_risk = 0.2
-    else:
-      fixation_risk = clamp((avg_fixation - 300) / 1200)
-      regression_risk = clamp(regression_count / 5)
-      eye_risk = (0.7 * fixation_risk) + (0.3 * regression_risk)
-      if audio_metrics.get("accuracy_percent", 0) >= 95 and regression_count == 0:
-        eye_risk = min(eye_risk, 0.3)
-
-    # ---------------- FINAL SCORE ----------------
-    final_risk = (
-        0.35 * phonological_risk
-        + 0.25 * fluency_risk
-        + 0.40 * eye_risk
+    # Non-linear amplification for severe phonological failure
+    phonological_risk = clamp(
+        (0.6 * (accuracy_risk ** 1.5)) +
+        (0.4 * wer_risk)
     )
 
-    # ---------------- LEVEL ----------------
-    if final_risk <= 0.30:
-        level = "LOW"
-    elif final_risk <= 0.60:
-        level = "MEDIUM"
+    # ================= FLUENCY =================
+    wps = audio_metrics.get("words_per_second", 0) or 0
+
+    # 2.5 WPS ≈ fluent upper bound (grade-agnostic baseline)
+    fluency_risk = clamp((2.5 - wps) / 2.5)
+
+    # ================= EYE TRACKING =================
+    avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
+    regression_count = eye_metrics.get("regression_count", 0)
+
+    # Short sentence → unreliable eye data
+    if total_words <= 5:
+        eye_risk = 0.2
     else:
-        level = "HIGH"
+        fixation_risk = clamp((avg_fixation - 300) / 1200)
+        regression_risk = clamp(regression_count / 5)
+
+        eye_risk = (
+            0.7 * fixation_risk +
+            0.3 * regression_risk
+        )
+
+        # If reading is accurate and stable, cap eye influence
+        if accuracy >= 95 and regression_count == 0:
+            eye_risk = min(eye_risk, 0.3)
+
+    # ================= LOW-ACCURACY PENALTY =================
+    if accuracy < 35:
+        low_accuracy_penalty = 0.25
+    elif accuracy < 50:
+        low_accuracy_penalty = 0.15
+    elif accuracy < 75:
+        low_accuracy_penalty = 0.075
+    else:
+        low_accuracy_penalty = 0.0
+
+    # ================= FINAL RISK SCORE =================
+    final_risk = clamp(
+        0.45 * phonological_risk +
+        0.25 * fluency_risk +
+        0.30 * eye_risk +
+        low_accuracy_penalty
+    )
+
+    # ================= RISK LEVEL =================
+    # Override: severe phonological collapse
+    if accuracy < 60 and phonological_risk > 0.6:
+        risk_level = "HIGH"
+    elif final_risk <= 0.30:
+        risk_level = "LOW"
+    elif final_risk <= 0.55:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "HIGH"
 
     return {
         "phonological_risk": round(phonological_risk, 3),
         "fluency_risk": round(fluency_risk, 3),
         "eye_risk": round(eye_risk, 3),
         "risk_score": round(final_risk, 3),
-        "risk_level": level,
+        "risk_level": risk_level,
     }
 
 def compute_metrics(reference: str, transcript: str, duration: Optional[float] = None):
