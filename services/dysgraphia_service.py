@@ -5,59 +5,16 @@ from datetime import datetime
 from typing import Dict, Any, List
 import math
 
-def calculate_baseline_deviation(strokes: List[Dict], activity_type: str, canvas_height: float = 200.0) -> float:
-    """
-    Calculate how far strokes deviate from the expected baseline(s).
-    
-    For letters/words: baseline is at center (canvas_height / 2)
-    For sentences: baselines are at regular intervals (canvas_height / 5)
-    
-    Returns average deviation in pixels.
-    """
-    if not strokes:
-        return 0.0
-    
-    total_deviation = 0.0
-    total_points = 0
-    
-    # Define baseline positions based on activity type
-    if activity_type in ['letters', 'words']:
-        # Single baseline at center
-        baselines = [canvas_height / 2]
-    else:  # sentences
-        # Multiple baselines at intervals
-        spacing = canvas_height / 5
-        baselines = [spacing * i for i in range(1, 5)]
-    
-    # Calculate deviation for each point in each stroke
-    for stroke in strokes:
-        points = stroke.get("points", [])
-        for point in points:
-            y = point.get("y", 0)
-            
-            # Find distance to nearest baseline
-            min_distance = min(abs(y - baseline) for baseline in baselines)
-            total_deviation += min_distance
-            total_points += 1
-    
-    if total_points == 0:
-        return 0.0
-    
-    # Return average deviation per point
-    return total_deviation / total_points
-
-
 def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Calculate dysgraphia risk score based on multiple factors.
+    Calculate dysgraphia risk score based on multiple factors including clears.
     Returns risk_level (none/low/medium/high) and detailed metrics.
     
     Scoring breakdown (0-100 scale):
-    - Time Factor: 0-30 points (slower than grade benchmark)
+    - Time Factor: 0-35 points (slower than grade benchmark)
     - Stroke Efficiency: 0-20 points (too many strokes = poor motor planning)
-    - Time Inconsistency: 0-15 points (variance indicates attention/control issues)
-    - Clears Factor: 0-20 points (high clears = strong dysgraphia indicator)
-    - Baseline Deviation: 0-15 points (NEW - can't write on line = spatial/motor issues)
+    - Time Inconsistency: 0-20 points (variance indicates attention/control issues)
+    - Clears Factor: 0-25 points (CRITICAL - high clears = strong dysgraphia indicator)
     """
     grade = submission_data.get("grade", 3)
     activity_type = submission_data.get("activity_type", "letters")
@@ -67,19 +24,12 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
         return {"risk_level": "none", "risk_score": 0, "details": {}}
     
     # Grade-specific time benchmarks (in seconds)
+    # Based on typical development milestones for Sinhala handwriting
     time_benchmarks = {
         'letters': {3: 3.0, 4: 2.5, 5: 2.0, 6: 1.8, 7: 1.5},
         'words': {3: 8.0, 4: 6.5, 5: 5.5, 6: 4.5, 7: 4.0},
         'sentences': {3: 15.0, 4: 12.0, 5: 10.0, 6: 8.5, 7: 7.0}
     }
-    
-    # Canvas height estimates by activity type (from frontend)
-    canvas_heights = {
-        'letters': 200.0,
-        'words': 320.0,
-        'sentences': 600.0
-    }
-    canvas_height = canvas_heights.get(activity_type, 200.0)
     
     # Get benchmark for this grade and activity
     benchmark_time = time_benchmarks.get(activity_type, {}).get(grade, 5.0)
@@ -88,58 +38,40 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     total_time = 0
     total_strokes = 0
     total_clears = 0
-    total_baseline_deviation = 0.0
     time_deviations = []
     excessive_strokes_count = 0
     excessive_clears_count = 0
-    excessive_deviation_count = 0
     
     # Expected stroke ranges by activity type
     expected_strokes = {
-        'letters': (1, 5),
-        'words': (3, 20),
-        'sentences': (10, 60)
+        'letters': (1, 5),    # Simple letters: 1-5 strokes
+        'words': (3, 20),     # Words: 3-20 strokes
+        'sentences': (10, 60) # Sentences: 10-60 strokes
     }
     min_strokes, max_strokes = expected_strokes.get(activity_type, (1, 10))
-    
-    # Baseline deviation thresholds (in pixels)
-    # Acceptable deviation range based on activity type
-    deviation_thresholds = {
-        'letters': 30.0,    # Letters should be closer to baseline
-        'words': 35.0,      # Words allow slightly more variation
-        'sentences': 40.0   # Sentences have more room for variation
-    }
-    acceptable_deviation = deviation_thresholds.get(activity_type, 35.0)
     
     # Analyze each prompt
     for prompt_data in prompts_data:
         time_taken = prompt_data.get("time_taken", 0)
         strokes = prompt_data.get("strokes", [])
-        clears = prompt_data.get("clears", 0)
+        clears = prompt_data.get("clears", 0)  # Get clears for this prompt
         stroke_count = len(strokes)
         
         total_time += time_taken
         total_strokes += stroke_count
         total_clears += clears
         
-        # Calculate baseline deviation for this prompt
-        deviation = calculate_baseline_deviation(strokes, activity_type, canvas_height)
-        total_baseline_deviation += deviation
-        
-        # Check if deviation is excessive
-        if deviation > acceptable_deviation:
-            excessive_deviation_count += 1
-        
         # Calculate time deviation from benchmark
         if time_taken > 0:
-            time_dev = (time_taken - benchmark_time) / benchmark_time
-            time_deviations.append(time_dev)
+            deviation = (time_taken - benchmark_time) / benchmark_time
+            time_deviations.append(deviation)
         
-        # Check for excessive strokes
+        # Check for excessive strokes (indicates poor motor planning)
         if stroke_count > max_strokes * 1.5:
             excessive_strokes_count += 1
         
-        # Check for excessive clears
+        # Check for excessive clears (indicates difficulty/lack of confidence)
+        # 3+ clears on a single prompt is considered excessive
         if clears >= 3:
             excessive_clears_count += 1
     
@@ -147,7 +79,6 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     avg_time = total_time / num_prompts if num_prompts > 0 else 0
     avg_strokes = total_strokes / num_prompts if num_prompts > 0 else 0
     avg_clears = total_clears / num_prompts if num_prompts > 0 else 0
-    avg_baseline_deviation = total_baseline_deviation / num_prompts if num_prompts > 0 else 0
     avg_time_deviation = sum(time_deviations) / len(time_deviations) if time_deviations else 0
     
     # Calculate time variance (inconsistency indicator)
@@ -162,90 +93,75 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     # ========================================================================
     risk_score = 0
     
-    # 1. TIME FACTOR (0-30 points) - Reduced from 35 to make room for baseline
-    if avg_time_deviation > 1.5:
-        risk_score += 30
-    elif avg_time_deviation > 1.0:
-        risk_score += 23
-    elif avg_time_deviation > 0.5:
-        risk_score += 15
-    elif avg_time_deviation > 0.2:
-        risk_score += 8
+    # 1. TIME FACTOR (0-35 points)
+    # Significantly slower than benchmark indicates processing/motor difficulty
+    if avg_time_deviation > 1.5:  # 150% slower than benchmark
+        risk_score += 35
+    elif avg_time_deviation > 1.0:  # 100% slower (2x time)
+        risk_score += 27
+    elif avg_time_deviation > 0.5:  # 50% slower
+        risk_score += 18
+    elif avg_time_deviation > 0.2:  # 20% slower
+        risk_score += 9
     
     # 2. STROKE EFFICIENCY (0-20 points)
+    # Too many strokes suggests poor motor planning and spatial awareness
     stroke_ratio = avg_strokes / max_strokes if max_strokes > 0 else 0
-    if stroke_ratio > 1.5:
+    if stroke_ratio > 1.5:  # 50% more strokes than expected
         risk_score += 20
-    elif stroke_ratio > 1.2:
+    elif stroke_ratio > 1.2:  # 20% more strokes
         risk_score += 15
-    elif stroke_ratio > 1.0:
+    elif stroke_ratio > 1.0:  # Slightly more than expected
         risk_score += 10
-    elif stroke_ratio > 0.8:
+    elif stroke_ratio > 0.8:  # Near expected range
         risk_score += 5
     
-    # 3. TIME INCONSISTENCY (0-15 points) - Reduced from 20
+    # 3. TIME INCONSISTENCY (0-20 points)
+    # High variance indicates attention issues or inconsistent motor control
     if time_inconsistency > 1.0:
-        risk_score += 15
-    elif time_inconsistency > 0.7:
-        risk_score += 11
-    elif time_inconsistency > 0.4:
-        risk_score += 7
-    elif time_inconsistency > 0.2:
-        risk_score += 4
-    
-    # 4. CLEARS/ERASES FACTOR (0-20 points) - Reduced from 25
-    if avg_clears >= 4:
         risk_score += 20
+    elif time_inconsistency > 0.7:
+        risk_score += 15
+    elif time_inconsistency > 0.4:
+        risk_score += 10
+    elif time_inconsistency > 0.2:
+        risk_score += 5
+    
+    # 4. CLEARS/ERASES FACTOR (0-25 points) - CRITICAL INDICATOR
+    # High number of clears is one of the STRONGEST indicators of dysgraphia
+    # Shows: difficulty with motor planning, lack of confidence, poor spatial awareness,
+    # difficulty forming letters correctly, perfectionism due to motor difficulties
+    if avg_clears >= 4:
+        risk_score += 25  # Very high concern - persistent difficulty
     elif avg_clears >= 3:
-        risk_score += 16
+        risk_score += 20  # High concern - frequent restarts
     elif avg_clears >= 2:
-        risk_score += 12
+        risk_score += 15  # Moderate concern - regular difficulty
     elif avg_clears >= 1:
-        risk_score += 8
+        risk_score += 10  # Some concern - occasional restarts
     elif avg_clears >= 0.5:
-        risk_score += 4
+        risk_score += 5   # Slight concern - infrequent issues
     
-    # Additional penalty for clear consistency
+    # Additional penalty for consistency in clearing behavior
+    # If many prompts had excessive clears (3+), it shows persistent pattern
     clear_consistency_ratio = excessive_clears_count / num_prompts if num_prompts > 0 else 0
-    if clear_consistency_ratio > 0.5:
-        risk_score += 8
-    elif clear_consistency_ratio > 0.3:
-        risk_score += 4
-    
-    # 5. BASELINE DEVIATION (0-15 points) - NEW FACTOR
-    # Measures ability to write on/near the dotted lines
-    # High deviation indicates poor spatial awareness and visual-motor integration
-    deviation_ratio = avg_baseline_deviation / acceptable_deviation
-    
-    if deviation_ratio > 2.0:  # More than 2x acceptable deviation
-        risk_score += 15  # Severe difficulty staying on line
-    elif deviation_ratio > 1.5:  # 50% more deviation than acceptable
-        risk_score += 12  # Significant difficulty
-    elif deviation_ratio > 1.2:  # 20% more deviation
-        risk_score += 9   # Moderate difficulty
-    elif deviation_ratio > 1.0:  # Slightly above acceptable
-        risk_score += 6   # Minor difficulty
-    elif deviation_ratio > 0.8:  # Close to acceptable range
-        risk_score += 3   # Slight concern
-    
-    # Additional penalty if many prompts had excessive deviation
-    deviation_consistency_ratio = excessive_deviation_count / num_prompts if num_prompts > 0 else 0
-    if deviation_consistency_ratio > 0.5:  # More than half had excessive deviation
-        risk_score += 7  # Persistent spatial/motor control issues
-    elif deviation_consistency_ratio > 0.3:
-        risk_score += 4
+    if clear_consistency_ratio > 0.5:  # More than half of prompts had 3+ clears
+        risk_score += 10  # Pattern of persistent difficulty
+    elif clear_consistency_ratio > 0.3:  # 30-50% had excessive clears
+        risk_score += 5   # Frequent difficulty pattern
     
     # ========================================================================
     # RISK LEVEL CLASSIFICATION
     # ========================================================================
+    # Based on total score (0-100)
     if risk_score >= 70:
-        risk_level = "high"
+        risk_level = "high"      # Immediate attention needed
     elif risk_score >= 45:
-        risk_level = "medium"
+        risk_level = "medium"    # Intervention recommended
     elif risk_score >= 20:
-        risk_level = "low"
+        risk_level = "low"       # Minor concerns, monitor progress
     else:
-        risk_level = "none"
+        risk_level = "none"      # Normal development
     
     # ========================================================================
     # DETAILED BREAKDOWN FOR ANALYSIS
@@ -262,18 +178,11 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
         "expected_max_strokes": max_strokes,
         "excessive_strokes_count": excessive_strokes_count,
         
-        # Clears metrics
+        # Clears metrics (NEW - CRITICAL DATA)
         "total_clears": total_clears,
         "avg_clears_per_prompt": round(avg_clears, 2),
         "excessive_clears_count": excessive_clears_count,
         "clear_consistency_ratio": round(clear_consistency_ratio, 2),
-        
-        # Baseline deviation metrics (NEW)
-        "avg_baseline_deviation": round(avg_baseline_deviation, 2),
-        "acceptable_deviation": acceptable_deviation,
-        "deviation_ratio": round(deviation_ratio, 2),
-        "excessive_deviation_count": excessive_deviation_count,
-        "deviation_consistency_ratio": round(deviation_consistency_ratio, 2),
         
         # General metrics
         "total_prompts": num_prompts
