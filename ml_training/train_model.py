@@ -2,47 +2,58 @@
 
 import pandas as pd
 import joblib
+from pathlib import Path
 
-from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report
 
 # -------------------------------
-# STEP 6 — Load dataset
+# PATH SETUP
 # -------------------------------
-df = pd.read_excel("data/sinhala_dyslexia_synthetic_5000.xlsx")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR / "data" / "sinhala_dyslexia_dataset_5000.xlsx"
+MODEL_DIR = BASE_DIR / "models"
+
+MODEL_DIR.mkdir(exist_ok=True)
+
+# -------------------------------
+# LOAD DATASET
+# -------------------------------
+df = pd.read_excel(DATA_PATH)
 
 print("Dataset shape:", df.shape)
-print(df["Risk Level"].value_counts())
+print("\nDyslexia stage distribution:")
+print(df["dyslexia_risk_level"].value_counts())
 
 # -------------------------------
-# STEP 7 — Select features & label
+# FEATURES & LABEL
 # -------------------------------
-features = [
-    "Accuracy Percentage",
-    "WER",
-    "Words Per Second",
-    "Avg Fixation ms",
-    "Fixation Count",
-    "Regression Count",
-    "Total Words",
-    "Duration"
+FEATURES = [
+    "accuracy_percent",
+    "wer",
+    "words_per_second",
+    "total_words",
+    "duration_seconds",
+    "fixation_count",
+    "avg_fixation_ms",
+    "regression_count"
 ]
 
-X = df[features]
-y = df["Risk Level"]
+X = df[FEATURES]
+y = df["dyslexia_risk_level"]
 
 # -------------------------------
-# STEP 8 — Encode labels
+# LABEL ENCODING
 # -------------------------------
 label_encoder = LabelEncoder()
 y_encoded = label_encoder.fit_transform(y)
 
-print("Classes:", label_encoder.classes_)
+print("\nClasses:", list(label_encoder.classes_))
 
 # -------------------------------
-# STEP 9 — Train/Test split
+# TRAIN / TEST SPLIT
 # -------------------------------
 X_train, X_test, y_train, y_test = train_test_split(
     X,
@@ -53,29 +64,23 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # -------------------------------
-# STEP 10 — Feature scaling
-# -------------------------------
-scaler = StandardScaler()
-
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
-
-# -------------------------------
-# STEP 11 — Train model
+# TRAIN MODEL
 # -------------------------------
 model = RandomForestClassifier(
-    n_estimators=300,
-    max_depth=12,
+    n_estimators=400,
+    max_depth=14,
+    min_samples_leaf=5,
     class_weight="balanced",
-    random_state=42
+    random_state=42,
+    n_jobs=-1
 )
 
-model.fit(X_train_scaled, y_train)
+model.fit(X_train, y_train)
 
 # -------------------------------
-# STEP 12 — Evaluate model
+# EVALUATION
 # -------------------------------
-y_pred = model.predict(X_test_scaled)
+y_pred = model.predict(X_test)
 
 print("\nClassification Report:\n")
 print(classification_report(
@@ -85,40 +90,39 @@ print(classification_report(
 ))
 
 # -------------------------------
-# STEP 13 — Feature importance
+# FEATURE IMPORTANCE
 # -------------------------------
 importance_df = pd.DataFrame({
-    "Feature": features,
-    "Importance": model.feature_importances_
-}).sort_values(by="Importance", ascending=False)
+    "feature": FEATURES,
+    "importance": model.feature_importances_
+}).sort_values(by="importance", ascending=False)
 
 print("\nFeature Importance:\n")
 print(importance_df)
 
 # -------------------------------
-# STEP 14 — Save model artifacts
+# SAVE ARTIFACTS
 # -------------------------------
-joblib.dump(model, "dyslexia_risk_model.pkl")
-joblib.dump(scaler, "scaler.pkl")
-joblib.dump(label_encoder, "label_encoder.pkl")
+joblib.dump(model, MODEL_DIR / "dyslexia_stage_model.pkl")
+joblib.dump(label_encoder, MODEL_DIR / "label_encoder.pkl")
+joblib.dump(FEATURES, MODEL_DIR / "feature_list.pkl")
 
-print("\n✅ Model, scaler, and label encoder saved")
+print("\n✅ Model artifacts saved successfully")
 
 # -------------------------------
-# STEP 15 — Test with sample input
+# SAMPLE TEST
 # -------------------------------
-sample = [[
-    78,     # Accuracy %
-    25,     # WER
-    1.6,    # Words Per Second
-    720,    # Avg Fixation ms
-    35,     # Fixation Count
-    3,      # Regression Count
-    14,     # Total Words
-    12      # Duration
-]]
+sample = pd.DataFrame([{
+    "accuracy_percent": 78,
+    "wer": 25,
+    "words_per_second": 1.6,
+    "total_words": 14,
+    "duration_seconds": 12,
+    "fixation_count": 35,
+    "avg_fixation_ms": 720,
+    "regression_count": 3
+}])
 
-sample_scaled = scaler.transform(sample)
-pred = model.predict(sample_scaled)
-
-print("\nSample Prediction:", label_encoder.inverse_transform(pred)[0])
+pred = model.predict(sample)
+print("\nSample Prediction:",
+      label_encoder.inverse_transform(pred)[0])
