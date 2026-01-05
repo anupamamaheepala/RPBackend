@@ -1,11 +1,10 @@
 # models/dyslexia/model_loader.py
 
-from pathlib import Path
 import joblib
+from pathlib import Path
 
-# This resolves to /app/models/dyslexia in Railway
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).resolve().parent
 
-model = joblib.load(BASE_DIR / "risk_model.pkl")
-label_encoder = joblib.load(BASE_DIR / "risk_label_encoder.pkl")
-scaler = joblib.load(BASE_DIR / "risk_features.pkl")
+model = joblib.load(BASE_DIR / "dyslexia_stage_model.pkl")
+scaler = joblib.load(BASE_DIR / "feature_list.pkl")
+label_encoder = joblib.load(BASE_DIR / "label_encoder.pkl")
