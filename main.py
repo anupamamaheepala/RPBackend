@@ -147,39 +147,20 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     fluency_risk = clamp((2.5 - wps) / 2.5)
 
     # ================= EYE TRACKING =================
-    fixation_count = eye_metrics.get("fixation_count", 0)
     avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
     regression_count = eye_metrics.get("regression_count", 0)
 
     # Short sentence → unreliable eye data
-    eye_quality = eye_metrics.get("quality", "LOW")
-
     if total_words <= 5:
-    # Sentence too short → eye tracking unreliable
-       eye_risk = 0.15
-
-    elif eye_quality == "LOW":
-    # Face camera eye tracking → heavily down-weighted
-      eye_risk = 0.15
-
+        eye_risk = 0.2
     else:
-    # Trusted eye tracking (future IR tracker support)
-      if fixation_count <= 2:
-        fixation_risk = 0.0
-      else:
         fixation_risk = clamp((avg_fixation - 300) / 1200)
+        regression_risk = clamp(regression_count / 5)
 
-      regression_risk = clamp(regression_count / 5)
-
-    eye_risk = (
-        0.7 * fixation_risk +
-        0.3 * regression_risk
-    )
-
-    # Strong reader override
-    if accuracy >= 95 and regression_count == 0:
-        eye_risk = min(eye_risk, 0.3)
-
+        eye_risk = (
+            0.7 * fixation_risk +
+            0.3 * regression_risk
+        )
 
         # If reading is accurate and stable, cap eye influence
         if accuracy >= 95 and regression_count == 0:
