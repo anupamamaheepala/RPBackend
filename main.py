@@ -147,24 +147,35 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     fluency_risk = clamp((2.5 - wps) / 2.5)
 
     # ================= EYE TRACKING =================
+    # ================= EYE TRACKING =================
     avg_fixation = eye_metrics.get("avg_fixation_ms", 0)
     regression_count = eye_metrics.get("regression_count", 0)
+    fixation_count = eye_metrics.get("fixation_count", 0)
 
-    # Short sentence → unreliable eye data
-    if total_words <= 5:
-        eye_risk = 0.2
+    eye_data_missing = (
+      fixation_count == 0 and
+      regression_count == 0 and
+      avg_fixation == 0
+)
+
+    if eye_data_missing:
+    # Eye data unavailable → neutral risk
+       eye_risk = 0.35
+    elif total_words <= 5:
+    # Short sentence → weak eye evidence
+       eye_risk = 0.25
     else:
-        fixation_risk = clamp((avg_fixation - 300) / 1200)
-        regression_risk = clamp(regression_count / 5)
+       fixation_risk = clamp((avg_fixation - 300) / 1200)
+       regression_risk = clamp(regression_count / 5)
 
-        eye_risk = (
-            0.7 * fixation_risk +
-            0.3 * regression_risk
-        )
+       eye_risk = (
+        0.7 * fixation_risk +
+        0.3 * regression_risk
+      )
 
-        # If reading is accurate and stable, cap eye influence
-        if accuracy >= 95 and regression_count == 0:
-            eye_risk = min(eye_risk, 0.3)
+       if accuracy >= 95 and regression_count == 0:
+        eye_risk = min(eye_risk, 0.3)
+
 
     # ================= LOW-ACCURACY PENALTY =================
     if accuracy < 35:
@@ -184,13 +195,17 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
         low_accuracy_penalty
     )
 
+    # Enforce minimum risk based on accuracy
+    if accuracy < 70:
+       final_risk = max(final_risk, 0.35)
+
     # ================= RISK LEVEL =================
     # Override: severe phonological collapse
     if accuracy < 60 and phonological_risk > 0.6:
         risk_level = "HIGH"
-    elif final_risk <= 0.30:
+    elif final_risk <= 0.35:
         risk_level = "LOW"
-    elif final_risk <= 0.55:
+    elif final_risk <= 0.65:
         risk_level = "MEDIUM"
     else:
         risk_level = "HIGH"
