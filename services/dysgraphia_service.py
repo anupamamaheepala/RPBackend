@@ -28,7 +28,7 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     time_benchmarks = {
         'letters': {3: 3.0, 4: 2.5, 5: 2.0, 6: 1.8, 7: 1.5},
         'words': {3: 8.0, 4: 6.5, 5: 5.5, 6: 4.5, 7: 4.0},
-        'sentences': {3: 15.0, 4: 12.0, 5: 10.0, 6: 8.5, 7: 7.0}
+        'sentences': {3: 20.0, 4: 19.0, 5: 18.0, 6: 15.0, 7: 12.0}  # UPDATED
     }
     
     # Get benchmark for this grade and activity
