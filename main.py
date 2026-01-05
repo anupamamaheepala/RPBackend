@@ -144,9 +144,6 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     # ================= FLUENCY =================
     wps = audio_metrics.get("words_per_second", 0) or 0
 
-    if total_words <= 5 and accuracy <= 60:
-       risk_level = "HIGH"
-
     # 2.5 WPS ≈ fluent upper bound (grade-agnostic baseline)
     fluency_risk = clamp((2.5 - wps) / 2.5)
 
@@ -204,15 +201,21 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
        final_risk = max(final_risk, 0.35)
 
     # ================= RISK LEVEL =================
-    # Override: severe phonological collapse
-    if accuracy < 60 and phonological_risk > 0.6:
-        risk_level = "HIGH"
+    if total_words <= 6 and accuracy <= 60:
+       risk_level = "HIGH"
+    elif accuracy < 60 and phonological_risk > 0.6:
+       risk_level = "HIGH"
+    elif wps <= 0.5 and accuracy < 85:
+       risk_level = "HIGH"
+    elif wps <= 0.5 and accuracy >= 85:
+       risk_level = "MEDIUM"
     elif final_risk <= 0.35:
-        risk_level = "LOW"
+      risk_level = "LOW"
     elif final_risk <= 0.65:
-        risk_level = "MEDIUM"
+      risk_level = "MEDIUM"
     else:
-        risk_level = "HIGH"
+      risk_level = "HIGH"
+
 
     return {
         "phonological_risk": round(phonological_risk, 3),
