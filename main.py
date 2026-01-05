@@ -144,6 +144,9 @@ def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
     # ================= FLUENCY =================
     wps = audio_metrics.get("words_per_second", 0) or 0
 
+    if total_words <= 5 and accuracy <= 60:
+       risk_level = "HIGH"
+
     # 2.5 WPS ≈ fluent upper bound (grade-agnostic baseline)
     fluency_risk = clamp((2.5 - wps) / 2.5)
 
