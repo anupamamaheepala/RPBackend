@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import classification_report
 
 # -------------------------------
@@ -64,6 +64,13 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # -------------------------------
+# FEATURE SCALING  ✅ NEW
+# -------------------------------
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# -------------------------------
 # TRAIN MODEL
 # -------------------------------
 model = RandomForestClassifier(
@@ -75,12 +82,12 @@ model = RandomForestClassifier(
     n_jobs=-1
 )
 
-model.fit(X_train, y_train)
+model.fit(X_train_scaled, y_train)
 
 # -------------------------------
 # EVALUATION
 # -------------------------------
-y_pred = model.predict(X_test)
+y_pred = model.predict(X_test_scaled)
 
 print("\nClassification Report:\n")
 print(classification_report(
@@ -101,9 +108,10 @@ print("\nFeature Importance:\n")
 print(importance_df)
 
 # -------------------------------
-# SAVE ARTIFACTS
+# SAVE ARTIFACTS  ✅ UPDATED
 # -------------------------------
 joblib.dump(model, MODEL_DIR / "dyslexia_stage_model.pkl")
+joblib.dump(scaler, MODEL_DIR / "scaler.pkl")              # ✅ IMPORTANT
 joblib.dump(label_encoder, MODEL_DIR / "label_encoder.pkl")
 joblib.dump(FEATURES, MODEL_DIR / "feature_list.pkl")
 
@@ -123,6 +131,10 @@ sample = pd.DataFrame([{
     "regression_count": 3
 }])
 
-pred = model.predict(sample)
+sample_scaled = scaler.transform(sample)
+pred = model.predict(sample_scaled)
+prob = model.predict_proba(sample_scaled).max()
+
 print("\nSample Prediction:",
       label_encoder.inverse_transform(pred)[0])
+print("Confidence:", round(float(prob), 3))

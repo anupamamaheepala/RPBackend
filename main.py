@@ -336,7 +336,7 @@ async def submit_audio(
             )
         except Exception as e:
           dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
-          dyslexia_risk["method"] = "RULE_BASED"
+          dyslexia_risk["method"] = "ML"
 
 
         # 6) Store reading result in MongoDB
