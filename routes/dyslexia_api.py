@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional, Any, Dict, List
 
 from fastapi import APIRouter, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from bson import Binary
 
@@ -191,6 +192,38 @@ class SessionPayload(BaseModel):
 
     sentences: List[Dict[str, Any]]
 
+
+@router.post("/generate-tts")
+async def generate_tts(text: str = Form(...)):
+    """
+    Generate Sinhala speech audio using OpenAI TTS
+    Returns mp3 file
+    """
+    try:
+        # Create temporary file
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tmp_path = tmp_file.name
+        tmp_file.close()
+
+        # Generate speech using OpenAI
+        response = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",   # clean neutral voice
+            input=text,
+        )
+
+        # Save audio to file
+        with open(tmp_path, "wb") as f:
+            f.write(response.read())
+
+        return FileResponse(
+            tmp_path,
+            media_type="audio/mpeg",
+            filename="tts.mp3"
+        )
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @router.post("/submit-session")
 def submit_session(payload: SessionPayload):
