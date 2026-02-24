@@ -21,6 +21,7 @@ router = APIRouter(prefix="/dyslexia", tags=["Dyslexia"])
 db = get_db()
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
+db["reading_session_stats"].create_index([("user_id", 1), ("created_at", -1)])
 
 # ---------- 1) PER SENTENCE ANALYZE ----------
 @router.post("/analyze-audio")
@@ -171,6 +172,7 @@ class SessionPayload(BaseModel):
 
     total_words: int
     total_correct: int
+    total_time_seconds: int
     overall_accuracy: float
 
     mean_sentence_accuracy: float
@@ -217,14 +219,46 @@ def submit_session(payload: SessionPayload):
     except Exception:
         dyslexia_risk = compute_dyslexia_risk(audio_metrics, eye_metrics)
 
+    created_at = datetime.utcnow()
+
+# (A) Save full session (existing behavior)
     session_doc = payload.model_dump()
     session_doc["dyslexia_assessment"] = dyslexia_risk
-    session_doc["created_at"] = datetime.utcnow()
+    session_doc["created_at"] = created_at
 
     result = db["reading_sessions"].insert_one(session_doc)
+
+# (B) Save summary stats separately (NEW)
+    stats_doc = {
+        "username": payload.username,
+        "user_id": payload.user_id,
+        "grade": payload.grade,
+        "level": payload.level,
+
+    "total_words": payload.total_words,
+    "total_correct": payload.total_correct,
+    "overall_accuracy": payload.overall_accuracy,
+    "total_time_seconds": payload.total_time_seconds,
+
+    "mean_sentence_accuracy": payload.mean_sentence_accuracy,
+    "sentence_accuracy_std_dev": payload.sentence_accuracy_std_dev,
+
+    "avg_WER": payload.avg_WER,
+    "avg_CER": payload.avg_CER,
+    "avg_words_per_second": payload.avg_words_per_second,
+
+    # link to full session (nice to have)
+    "full_session_id": str(result.inserted_id),
+
+    "created_at": created_at,
+}
+
+    stats_result = db["reading_session_stats"].insert_one(stats_doc)
 
     return {
         "ok": True,
         "session_id": str(result.inserted_id),
+        "stats_id": str(stats_result.inserted_id),
         "dyslexia_assessment": dyslexia_risk
     }
+
