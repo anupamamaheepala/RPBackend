@@ -200,29 +200,27 @@ async def generate_tts(text: str = Form(...)):
     Returns mp3 file
     """
     try:
-        # Create temporary file
-        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        tmp_path = tmp_file.name
-        tmp_file.close()
-
-        # Generate speech using OpenAI
         response = client.audio.speech.create(
             model="gpt-4o-mini-tts",
-            voice="alloy",   # clean neutral voice
+            voice="alloy",
             input=text,
         )
 
-        # Save audio to file
-        with open(tmp_path, "wb") as f:
-            f.write(response.read())
+        # ✅ Correct way to get audio bytes
+        audio_bytes = response.content
+
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tmp_file.write(audio_bytes)
+        tmp_file.close()
 
         return FileResponse(
-            tmp_path,
+            tmp_file.name,
             media_type="audio/mpeg",
             filename="tts.mp3"
         )
 
     except Exception as e:
+        print("TTS ERROR:", e)
         return {"ok": False, "error": str(e)}
 
 @router.post("/submit-session")
