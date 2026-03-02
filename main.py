@@ -13,6 +13,9 @@ from routes.dysgraphia_routes import router as dysgraphia_router
 from routes.adhd_routes import router as adhd_router
 from routes.dyscalculia_routes import router as dyscalculia_router
 from routes.auth_routes import router as auth_router
+from routes.dyslexia_progress_api import router as learning_router
+
+
 
 app = FastAPI(
     title="Reading Proficiency (RP) Backend",
@@ -27,6 +30,7 @@ app.include_router(adhd_router)
 app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
 app.include_router(auth_router)
+app.include_router(learning_router)
 
 # CORS
 app.add_middleware(
