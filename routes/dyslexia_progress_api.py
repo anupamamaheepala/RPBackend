@@ -11,7 +11,7 @@ router = APIRouter(prefix="/learning", tags=["Learning Progress"])
 db = get_db()
 
 # Create index for faster querying
-db["learning_progress_results"].create_index([("user_id", 1), ("created_at", -1)])
+db["dyslexia_learning_progress_results"].create_index([("user_id", 1), ("created_at", -1)])
 
 
 # ===============================
@@ -47,7 +47,7 @@ def submit_learning_progress(payload: LearningProgressPayload):
         progress_doc = payload.model_dump()
         progress_doc["created_at"] = created_at
 
-        result = db["learning_progress_results"].insert_one(progress_doc)
+        result = db["dyslexia_learning_progress_results"].insert_one(progress_doc)
 
         return {
             "ok": True,
@@ -70,7 +70,7 @@ def submit_learning_progress(payload: LearningProgressPayload):
 def get_progress_history(user_id: str):
     try:
         records = list(
-            db["learning_progress_results"]
+            db["dyslexia_learning_progress_results"]
             .find({"user_id": user_id})
             .sort("created_at", -1)
         )
@@ -89,3 +89,29 @@ def get_progress_history(user_id: str):
             "ok": False,
             "error": str(e)
         }
+    
+
+@router.get("/get-module-progress")
+def get_module_progress(
+    user_id: str,
+    grade: int,
+    level: int,
+    module_number: int
+):
+    doc = db["dyslexia_module_progress"].find_one({
+        "user_id": user_id,
+        "grade": grade,
+        "level": level,
+        "module_number": module_number
+    })
+
+    if not doc:
+        return {
+            "ok": True,
+            "progress": {}
+        }
+
+    return {
+        "ok": True,
+        "progress": doc.get("activities", {})
+    }
