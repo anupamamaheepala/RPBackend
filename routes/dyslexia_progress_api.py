@@ -44,10 +44,28 @@ def submit_learning_progress(payload: LearningProgressPayload):
     try:
         created_at = datetime.utcnow()
 
+        # ---------- (A) Save detailed progress result ----------
         progress_doc = payload.model_dump()
         progress_doc["created_at"] = created_at
 
         result = db["dyslexia_learning_progress_results"].insert_one(progress_doc)
+
+        # ---------- (B) Update module progress tracking ----------
+        db["module_progress"].update_one(
+            {
+                "user_id": payload.user_id,
+                "grade": payload.grade,
+                "level": payload.level,
+                "module_number": payload.module_number
+            },
+            {
+                "$set": {
+                    f"activities.Activity{payload.activity}": True,
+                    "updated_at": created_at
+                }
+            },
+            upsert=True
+        )
 
         return {
             "ok": True,
