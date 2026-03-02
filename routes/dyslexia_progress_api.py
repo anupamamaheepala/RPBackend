@@ -133,3 +133,40 @@ def get_module_progress(
         "ok": True,
         "progress": doc.get("activities", {})
     }
+
+#get the grade , level, risk level to assign learning paths
+
+@router.get("/get-assigned-learning-path")
+def get_assigned_learning_path(
+    user_id: str,
+    grade: int,
+    level: int
+):
+    session = db["reading_sessions"].find_one(
+        {
+            "user_id": user_id,
+            "grade": grade,
+            "level": level
+        },
+        sort=[("created_at", -1)]
+    )
+
+    if not session:
+        return {
+            "ok": True,
+            "eligible": False
+        }
+
+    risk_level = session.get("dyslexia_assessment", {}).get("risk_level")
+
+    if not risk_level:
+        return {
+            "ok": True,
+            "eligible": False
+        }
+
+    return {
+        "ok": True,
+        "eligible": True,
+        "risk_level": risk_level
+    }
