@@ -5,6 +5,113 @@ from datetime import datetime
 from typing import Dict, Any, List
 import math
 
+import pickle
+import numpy as np
+
+# Load model once at startup (module level)
+_ml_model = None
+
+def get_ml_model():
+    global _ml_model
+    if _ml_model is None:
+        with open("models/dysgraphia_model.pkl", "rb") as f:
+            _ml_model = pickle.load(f)
+    return _ml_model
+
+def predict_risk_ml(details: dict) -> dict:
+    """
+    Use XGBoost model to predict dysgraphia risk.
+    Input: the 'details' dict from calculate_risk_score()
+    Output: { risk_level, risk_score, confidence }
+    """
+    model = get_ml_model()
+
+    # Build feature vector — ORDER MUST MATCH TRAINING
+    features = np.array([[
+        details["avg_time_per_prompt"],
+        details["avg_strokes"],
+        details["avg_clears_per_prompt"],
+        details["time_inconsistency"],
+        details["excessive_strokes_count"],
+        details["excessive_clears_count"],
+        details["time_deviation_percent"],
+    ]])
+
+    # Get prediction + probability
+    predicted_class = model.predict(features)[0]          # e.g. "high"
+    probabilities = model.predict_proba(features)[0]      # e.g. [0.1, 0.2, 0.6, 0.1]
+    confidence = round(float(max(probabilities)) * 100, 1)
+
+    # Map numeric class to label if model outputs integers
+    class_map = {0: "none", 1: "low", 2: "medium", 3: "high"}
+    if isinstance(predicted_class, (int, np.integer)):
+        risk_level = class_map[predicted_class]
+    else:
+        risk_level = str(predicted_class)
+
+    # Convert risk_level to a 0-100 score for consistency
+    score_map = {"none": 10, "low": 30, "medium": 57, "high": 85}
+    risk_score = score_map.get(risk_level, 0)
+
+    return {
+        "risk_level": risk_level,
+        "risk_score": risk_score,
+        "confidence": confidence
+    }
+
+
+
+def save_dysgraphia_submission(submission_data) -> dict:
+    db = get_db()
+    collection = db["dysgraphia_submissions"]
+
+    try:
+        doc = submission_data.dict()
+
+        # Step 1: Always calculate rule-based details (needed as ML features)
+        rule_assessment = calculate_risk_score(doc)
+        details = rule_assessment["details"]
+
+        # Step 2: Try ML prediction, fall back to rule-based
+        try:
+            ml_assessment = predict_risk_ml(details)
+            final_risk_level = ml_assessment["risk_level"]
+            final_risk_score = ml_assessment["risk_score"]
+            prediction_source = "ml"
+            confidence = ml_assessment["confidence"]
+        except Exception as ml_error:
+            # Fallback: use rule-based if model fails
+            final_risk_level = rule_assessment["risk_level"]
+            final_risk_score = rule_assessment["risk_score"]
+            prediction_source = "rules"
+            confidence = None
+
+        doc["risk_level"] = final_risk_level
+        doc["risk_score"] = final_risk_score
+        doc["risk_details"] = details
+        doc["prediction_source"] = prediction_source  # Track which system decided
+        doc["confidence"] = confidence
+        doc["rule_based_score"] = rule_assessment["risk_score"]  # Keep for comparison
+        doc["created_at"] = datetime.utcnow()
+        doc["updated_at"] = datetime.utcnow()
+
+        result = collection.insert_one(doc)
+
+        return {
+            "ok": True,
+            "submission_id": str(result.inserted_id),
+            "risk_level": final_risk_level,
+            "risk_score": final_risk_score,
+            "confidence": confidence,
+            "prediction_source": prediction_source,
+            "message": "Submission saved successfully"
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+
 def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Calculate dysgraphia risk score based on multiple factors including clears.
