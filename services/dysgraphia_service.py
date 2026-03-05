@@ -71,16 +71,16 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
 
     risk_score = 0
 
-    # 1. FORMATION ACCURACY (0-45 pts) — PRIMARY SIGNAL
-    # This is now the most important factor. A child writing unrecognisable
-    # letters is the clearest indicator of dysgraphia regardless of speed.
+    # 1. FORMATION ACCURACY (0-60 pts) — PRIMARY SIGNAL
+    # Increased from 45 to 60 pts. Formation is the most clinically meaningful
+    # signal — unrecognisable letters are a direct dysgraphia marker.
     formation_pts = 0
     if formation_accuracy is not None:
-        if formation_accuracy < 0.20:   formation_pts = 45  # <20% correct — very severe
-        elif formation_accuracy < 0.40: formation_pts = 35  # <40% correct — severe
-        elif formation_accuracy < 0.60: formation_pts = 25  # <60% correct — moderate-high
-        elif formation_accuracy < 0.80: formation_pts = 12  # <80% correct — mild
-        elif formation_accuracy < 0.90: formation_pts = 5   # <90% correct — slight
+        if formation_accuracy < 0.20:   formation_pts = 60  # <20% correct — very severe
+        elif formation_accuracy < 0.40: formation_pts = 48  # <40% correct — severe
+        elif formation_accuracy < 0.60: formation_pts = 35  # <60% correct — moderate-high
+        elif formation_accuracy < 0.80: formation_pts = 18  # <80% correct — mild
+        elif formation_accuracy < 0.90: formation_pts = 8   # <90% correct — slight
     risk_score += formation_pts
 
     # 2. CLEARS / ERASES (0-25 pts + 10 consistency bonus)
@@ -125,20 +125,22 @@ def calculate_risk_score(submission_data: Dict[str, Any]) -> Dict[str, Any]:
     # Cap at 100 before applying override
     risk_score = min(risk_score, 100)
 
-    # FORMATION OVERRIDE
-    # When letter shapes are clearly wrong, force a minimum score.
-    # This is the key fix: a fast confident child writing wrong letters
-    # must still score high — speed and low erases don't cancel bad formation.
+    # FORMATION OVERRIDE — tightened thresholds
+    # Forces minimum risk score based purely on formation accuracy.
+    # Overrides all other signals — good timing/clears cannot save bad formation.
     formation_override_applied = False
     if formation_accuracy is not None:
-        if formation_accuracy < 0.20 and risk_score < 70:
-            risk_score = 70   # Force HIGH — letters totally unrecognisable
+        if formation_accuracy < 0.20 and risk_score < 75:
+            risk_score = 75   # Force HIGH — letters totally unrecognisable
             formation_override_applied = True
-        elif formation_accuracy < 0.40 and risk_score < 50:
-            risk_score = 50   # Force MEDIUM — majority of letters wrong
+        elif formation_accuracy < 0.40 and risk_score < 60:
+            risk_score = 60   # Force HIGH — majority of letters wrong
             formation_override_applied = True
-        elif formation_accuracy < 0.60 and risk_score < 35:
-            risk_score = 35   # Lift to LOW-MEDIUM boundary
+        elif formation_accuracy < 0.60 and risk_score < 45:
+            risk_score = 45   # Force MEDIUM — more than half wrong
+            formation_override_applied = True
+        elif formation_accuracy < 0.80 and risk_score < 25:
+            risk_score = 25   # Force LOW — noticeable formation issues
             formation_override_applied = True
 
     # Risk level classification
