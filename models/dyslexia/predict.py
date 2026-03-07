@@ -1,45 +1,59 @@
-# models/dyslexia/predict.py
-
 import pandas as pd
-from .model_loader import model, scaler, label_encoder
+import numpy as np
+from .model_loader import model, label_encoder
 
+# These MUST match the headers in your generated CSV/Training code exactly.
+# If a single letter is different (e.g., 'Grade' vs 'grade'), the model will fail.
 FEATURES = [
-    "Accuracy Percentage",
-    "WER",
-    "Words Per Second",
-    "Avg Fixation ms",
-    "Fixation Count",
-    "Regression Count",
-    "Total Words",
-    "Duration",
+    'grade', 
+    'level', 
+    'total_words', 
+    'overall_accuracy', 
+    'avg_WER', 
+    'avg_CER', 
+    'total_time_seconds',
+    'dyslexia_assessment.phonological_risk', 
+    'dyslexia_assessment.fluency_risk', 
+    'dyslexia_assessment.eye_risk'
 ]
 
-def predict_dyslexia_risk_ml(audio_metrics: dict, eye_metrics: dict, duration: float):
+def predict_dyslexia_risk_ml(ml_features: dict):
     """
-    ML-based dyslexia risk prediction
+    Core ML prediction function.
+    
+    Args:
+        ml_features (dict): A dictionary containing all keys defined in FEATURES.
+        
+    Returns:
+        dict: The risk level and the model's confidence score.
     """
+    try:
+        # 1. Convert dictionary to Pandas DataFrame (required for Scikit-Learn)
+        # We specify the columns=FEATURES to ensure the order is correct.
+        X = pd.DataFrame([ml_features], columns=FEATURES)
 
-    row = {
-        "Accuracy Percentage": audio_metrics.get("accuracy_percent", 0),
-        "WER": audio_metrics.get("wer", 100),
-        "Words Per Second": audio_metrics.get("words_per_second", 0) or 0,
-        "Avg Fixation ms": eye_metrics.get("avg_fixation_ms", 0),
-        "Fixation Count": eye_metrics.get("fixation_count", 0),
-        "Regression Count": eye_metrics.get("regression_count", 0),
-        "Total Words": audio_metrics.get("total_words", 0),
-        "Duration": duration or 0,
-    }
+        # 2. Perform the prediction
+        # No scaler needed for Random Forest as it is scale-invariant.
+        numerical_prediction = model.predict(X)
+        
+        # 3. Get the probability/confidence score
+        # This returns a list of probabilities for [LOW, MEDIUM, HIGH]
+        probabilities = model.predict_proba(X)
+        max_confidence = np.max(probabilities)
 
-    X = pd.DataFrame([row], columns=FEATURES)
+        # 4. Decode the numeric result (0, 1, 2) back to ("LOW", "MEDIUM", "HIGH")
+        risk_level = label_encoder.inverse_transform(numerical_prediction)[0]
 
-    X_scaled = scaler.transform(X)
-    pred = model.predict(X_scaled)
-    prob = model.predict_proba(X_scaled).max()
+        return {
+            "risk_level": risk_level,
+            "confidence": round(float(max_confidence), 3),
+            "method": "Machine Learning (Random Forest)"
+        }
 
-    risk_level = label_encoder.inverse_transform(pred)[0]
-
-    return {
-        "risk_level": risk_level,
-        "confidence": round(float(prob), 3),
-        "method": "ML",
-    }
+    except Exception as e:
+        # Detailed error reporting for debugging column mismatches
+        print(f"CRITICAL: ML Prediction Error: {str(e)}")
+        return {
+            "error": f"Prediction failed: {str(e)}",
+            "method": "Error"
+        }
