@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime
 
 class DyscalculiaResult(BaseModel):
+    user_id: str             # <-- Added to track the specific student
     grade: int
     task_number: int
     accuracy: int            # Out of 5
@@ -12,4 +13,5 @@ class DyscalculiaResult(BaseModel):
     backtracks: int          # Total backtracks
     skipped_items: int       # Total skipped
     completion_time: float   # Total task time in seconds
+    risk_level: Optional[str] = None  # <-- Added to store the ML prediction
     created_at: Optional[datetime] = None
