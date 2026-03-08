@@ -5,6 +5,7 @@ from typing import Optional, Tuple, List
 from jiwer import wer as jiwer_wer
 from jiwer import wer
 from difflib import SequenceMatcher
+import numpy as np
 
 SINHALA_NORMALIZATION_MAP = {
     "ණ": "න",
@@ -105,6 +106,41 @@ def compute_metrics(reference: str, transcript: str, duration: Optional[float] =
         "words_per_second": speed,
         # IMPORTANT: make it a LIST (frontend aggregation needs list)
         "incorrect_words": incorrect_words_list,
+    }
+
+
+def calculate_session_metrics(payload):
+    """
+    Transforms raw session data into the 10 features required by the ML model.
+    """
+    # 1. Phonological Risk: Derived from Error Rates (WER/CER)
+    # If errors are high, risk approaches 1.0. 
+    # We use 50% error as a common 'high risk' threshold for normalization.
+    phonological_risk = min(1.0, (payload.avg_WER + payload.avg_CER) / 100.0)
+
+    # 2. Fluency Risk: Derived from Words Per Second (WPS)
+    # Benchmark: 3.0 WPS is fluent for Grade 3-7. 
+    # Risk increases as speed drops below 3.0.
+    fluency_risk = max(0.0, 1.0 - (payload.avg_words_per_second / 3.0))
+
+    # 3. Eye Risk: Derived from Gaze Data
+    # Dyslexic readers typically have higher regressions and longer fixations.
+    # Normalizing: 20+ regressions = high risk; 500ms+ fixation = high risk.
+    reg_score = min(1.0, payload.avg_regression_count / 20.0)
+    fix_score = min(1.0, payload.avg_fixation_time / 500.0)
+    eye_risk = (reg_score * 0.7) + (fix_score * 0.3)
+
+    return {
+        "grade": payload.grade,
+        "level": payload.level,
+        "total_words": payload.total_words,
+        "overall_accuracy": payload.overall_accuracy,
+        "avg_WER": payload.avg_WER,
+        "avg_CER": payload.avg_CER,
+        "total_time_seconds": payload.total_time_seconds,
+        "dyslexia_assessment.phonological_risk": round(float(phonological_risk), 4),
+        "dyslexia_assessment.fluency_risk": round(float(fluency_risk), 4),
+        "dyslexia_assessment.eye_risk": round(float(eye_risk), 4)
     }
 
 def compute_dyslexia_risk(audio_metrics: dict, eye_metrics: dict):
