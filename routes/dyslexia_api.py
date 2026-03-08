@@ -519,25 +519,23 @@ class SessionPayload(BaseModel):
 # ---------- 2) SESSION SUBMISSION (HYBRID ML) ----------
 @router.post("/submit-session")
 def submit_session(payload: SessionPayload):
-    # Step 1: Pre-calculate the 'Risk Pillars' required by the ML Model
-    audio_metrics_for_formula = {
+    # Step 1: Prepare raw data for pillar calculation
+    audio_metrics = {
         "accuracy_percent": payload.overall_accuracy,
         "wer": payload.avg_WER,
         "words_per_second": payload.avg_words_per_second,
-        "correct_words": payload.total_correct,
-        "total_words": payload.total_words,
+        "total_words": payload.total_words
     }
-
-    eye_metrics_for_formula = {
+    eye_metrics = {
         "avg_fixation_ms": payload.avg_fixation_time,
-        "regression_count": payload.avg_regression_count,
+        "regression_count": payload.avg_regression_count
     }
 
-    # Use existing formulas to get the input features for the ML model
-    base_calculation = compute_dyslexia_risk(audio_metrics_for_formula, eye_metrics_for_formula)
+    # Step 2: Use your existing logic to get the 'Pillar Risks' (the inputs for the ML)
+    base_risks = compute_dyslexia_risk(audio_metrics, eye_metrics)
 
-    # Step 2: Prepare exact feature set for ML prediction
-    ml_features = {
+    # Step 3: Map everything to the 10 features the .pkl model expects
+    ml_input = {
         'grade': payload.grade,
         'level': payload.level,
         'total_words': payload.total_words,
@@ -545,49 +543,111 @@ def submit_session(payload: SessionPayload):
         'avg_WER': payload.avg_WER,
         'avg_CER': payload.avg_CER,
         'total_time_seconds': payload.total_time_seconds,
-        'dyslexia_assessment.phonological_risk': base_calculation["phonological_risk"],
-        'dyslexia_assessment.fluency_risk': base_calculation["fluency_risk"],
-        'dyslexia_assessment.eye_risk': base_calculation["eye_risk"]
+        'dyslexia_assessment.phonological_risk': base_risks["phonological_risk"],
+        'dyslexia_assessment.fluency_risk': base_risks["fluency_risk"],
+        'dyslexia_assessment.eye_risk': base_risks["eye_risk"]
     }
 
-    # Step 3: Execute ML Prediction using .pkl files
+    # Step 4: RUN THE TRAINED MODEL
     try:
-        dyslexia_assessment = predict_dyslexia_risk_ml(ml_features)
-        # Ensure we didn't get an error dict back
-        if "error" in dyslexia_assessment:
-            raise Exception(dyslexia_assessment["error"])
+        # This uses your dyslexia_model.pkl
+        ml_result = predict_dyslexia_risk_ml(ml_input)
+        
+        # If the ML model returns a confidence, we use that
+        final_assessment = ml_result
     except Exception as e:
-        print(f"ML Prediction failed, falling back to formula: {e}")
-        dyslexia_assessment = base_calculation
-        dyslexia_assessment["method"] = "Formula Fallback"
+        print(f"ML Error, falling back to basic logic: {e}")
+        # Fallback if .pkl files are missing or version mismatch
+        final_assessment = {
+            "risk_level": base_risks["risk_level"],
+            "confidence": 0.50, # Low confidence for fallback
+            "method": "Formula Fallback"
+        }
 
-    # Step 4: Save to MongoDB
-    created_at = datetime.utcnow()
-    
+    # Step 5: Save and Return
     session_doc = payload.model_dump()
-    session_doc["dyslexia_assessment"] = dyslexia_assessment
-    session_doc["created_at"] = created_at
-    result = db["reading_sessions"].insert_one(session_doc)
-
-    stats_doc = {
-        "username": payload.username,
-        "user_id": payload.user_id,
-        "grade": payload.grade,
-        "level": payload.level,
-        "total_words": payload.total_words,
-        "overall_accuracy": payload.overall_accuracy,
-        "avg_WER": payload.avg_WER,
-        "risk_level": dyslexia_assessment.get("risk_level"),
-        "full_session_id": str(result.inserted_id),
-        "created_at": created_at,
-    }
-    db["reading_session_stats"].insert_one(stats_doc)
+    session_doc["dyslexia_assessment"] = final_assessment
+    session_doc["created_at"] = datetime.utcnow()
+    
+    db_result = db["reading_sessions"].insert_one(session_doc)
 
     return {
-        "ok": True, 
-        "session_id": str(result.inserted_id), 
-        "dyslexia_assessment": dyslexia_assessment
+        "ok": True,
+        "session_id": str(db_result.inserted_id),
+        "dyslexia_assessment": final_assessment
     }
+
+# @router.post("/submit-session")
+# def submit_session(payload: SessionPayload):
+#     # Step 1: Pre-calculate the 'Risk Pillars' required by the ML Model
+#     audio_metrics_for_formula = {
+#         "accuracy_percent": payload.overall_accuracy,
+#         "wer": payload.avg_WER,
+#         "words_per_second": payload.avg_words_per_second,
+#         "correct_words": payload.total_correct,
+#         "total_words": payload.total_words,
+#     }
+
+#     eye_metrics_for_formula = {
+#         "avg_fixation_ms": payload.avg_fixation_time,
+#         "regression_count": payload.avg_regression_count,
+#     }
+
+#     # Use existing formulas to get the input features for the ML model
+#     base_calculation = compute_dyslexia_risk(audio_metrics_for_formula, eye_metrics_for_formula)
+
+#     # Step 2: Prepare exact feature set for ML prediction
+#     ml_features = {
+#         'grade': payload.grade,
+#         'level': payload.level,
+#         'total_words': payload.total_words,
+#         'overall_accuracy': payload.overall_accuracy,
+#         'avg_WER': payload.avg_WER,
+#         'avg_CER': payload.avg_CER,
+#         'total_time_seconds': payload.total_time_seconds,
+#         'dyslexia_assessment.phonological_risk': base_calculation["phonological_risk"],
+#         'dyslexia_assessment.fluency_risk': base_calculation["fluency_risk"],
+#         'dyslexia_assessment.eye_risk': base_calculation["eye_risk"]
+#     }
+
+#     # Step 3: Execute ML Prediction using .pkl files
+#     try:
+#         dyslexia_assessment = predict_dyslexia_risk_ml(ml_features)
+#         # Ensure we didn't get an error dict back
+#         if "error" in dyslexia_assessment:
+#             raise Exception(dyslexia_assessment["error"])
+#     except Exception as e:
+#         print(f"ML Prediction failed, falling back to formula: {e}")
+#         dyslexia_assessment = base_calculation
+#         dyslexia_assessment["method"] = "Formula Fallback"
+
+#     # Step 4: Save to MongoDB
+#     created_at = datetime.utcnow()
+    
+#     session_doc = payload.model_dump()
+#     session_doc["dyslexia_assessment"] = dyslexia_assessment
+#     session_doc["created_at"] = created_at
+#     result = db["reading_sessions"].insert_one(session_doc)
+
+#     stats_doc = {
+#         "username": payload.username,
+#         "user_id": payload.user_id,
+#         "grade": payload.grade,
+#         "level": payload.level,
+#         "total_words": payload.total_words,
+#         "overall_accuracy": payload.overall_accuracy,
+#         "avg_WER": payload.avg_WER,
+#         "risk_level": dyslexia_assessment.get("risk_level"),
+#         "full_session_id": str(result.inserted_id),
+#         "created_at": created_at,
+#     }
+#     db["reading_session_stats"].insert_one(stats_doc)
+
+#     return {
+#         "ok": True, 
+#         "session_id": str(result.inserted_id), 
+#         "dyslexia_assessment": dyslexia_assessment
+#     }
 
 # ---------- 3) UTILITIES ----------
 @router.post("/generate-tts")
