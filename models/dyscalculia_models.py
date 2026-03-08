@@ -3,15 +3,16 @@ from typing import Optional
 from datetime import datetime
 
 class DyscalculiaResult(BaseModel):
-    user_id: str             # <-- Added to track the specific student
+    user_id: str             
     grade: int
     task_number: int
-    accuracy: int            # Out of 5
-    response_time_avg: float # Average seconds per problem
-    hesitation_time_avg: float # Average hesitation (seconds)
-    retries: int             # Total retries
-    backtracks: int          # Total backtracks
-    skipped_items: int       # Total skipped
-    completion_time: float   # Total task time in seconds
-    risk_level: Optional[str] = None  # <-- Added to store the ML prediction
+    accuracy: int            
+    response_time_avg: float 
+    hesitation_time_avg: float 
+    retries: int             
+    backtracks: int          
+    skipped_items: int       
+    wrong_count: int         # <-- ADDED: Tracks total incorrect check attempts
+    completion_time: float   
+    risk_level: Optional[str] = None  
     created_at: Optional[datetime] = None
