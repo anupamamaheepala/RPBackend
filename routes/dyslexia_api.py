@@ -279,6 +279,34 @@ def submit_session(payload: SessionPayload):
         "dyslexia_assessment": dyslexia_risk
     }
 
+@router.get("/check-task-lock")
+async def check_task_lock(user_id: str, grade: int, level: int):
+    # 1. Check if they have ever done a task for this level
+    last_stat = db["reading_session_stats"].find_one(
+        {"user_id": user_id, "grade": grade, "level": level},
+        sort=[("created_at", -1)]
+    )
+
+    if not last_stat:
+        # No previous task = NOT LOCKED (They need to do their first assessment)
+        return {"is_locked": False}
+
+    # 2. If they have a task, check if the Learning Path for it is finished
+    # We look for a 'module_completed' flag in your progress collection
+    progress = db["learning_progress"].find_one({
+        "user_id": user_id,
+        "grade": grade,
+        "level": level,
+        "module_number": 1
+    })
+
+    if progress and progress.get("is_completed", False):
+        # Path is finished = UNLOCKED (They can re-assess to move to next level)
+        return {"is_locked": False}
+    else:
+        # Path exists but not finished = LOCKED
+        return {"is_locked": True}
+
 ##############################################################################################################################
 # @router.post("/submit-session")
 # def submit_session(payload: SessionPayload):
