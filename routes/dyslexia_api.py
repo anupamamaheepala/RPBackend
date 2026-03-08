@@ -307,6 +307,59 @@ async def check_task_lock(user_id: str, grade: int, level: int):
         # Path exists but not finished = LOCKED
         return {"is_locked": True}
 
+@router.post("/learning/complete-module")
+async def complete_module(data: dict):
+    user_id = data.get("user_id")
+    grade = data.get("grade")
+    level = data.get("level")
+    module_number = data.get("module_number")
+
+    # Update or insert the completion status
+    db["learning_progress"].update_one(
+        {
+            "user_id": user_id,
+            "grade": grade,
+            "level": level,
+            "module_number": module_number
+        },
+        {
+            "$set": {
+                "is_completed": True,
+                "completed_at": datetime.utcnow()
+            }
+        },
+        upsert=True
+    )
+    
+    return {"ok": True, "message": "Module marked as completed"}
+
+
+@router.get("/dyslexia/check-task-lock")
+async def check_task_lock(user_id: str, grade: int, level: int):
+    # Check if there is a session record for this level
+    last_session = db["reading_session_stats"].find_one(
+        {"user_id": user_id, "grade": grade, "level": level},
+        sort=[("created_at", -1)]
+    )
+
+    # If no session exists, the user is new to this level: NOT LOCKED
+    if not last_session:
+        return {"is_locked": False}
+
+    # If a session exists, check if the corresponding learning module is finished
+    progress = db["learning_progress"].find_one({
+        "user_id": user_id,
+        "grade": grade,
+        "level": level,
+        "module_number": 1 # Assuming Module 1 corresponds to the assessment
+    })
+
+    # Lock the task if progress is missing or is_completed is False
+    is_locked = True
+    if progress and progress.get("is_completed") == True:
+        is_locked = False
+
+    return {"is_locked": is_locked}
 ##############################################################################################################################
 # @router.post("/submit-session")
 # def submit_session(payload: SessionPayload):
