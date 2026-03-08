@@ -170,3 +170,34 @@ def get_assigned_learning_path(
         "eligible": True,
         "risk_level": risk_level
     }
+
+
+# Check if the user is allowed to test or must do learning first
+@router.get("/learning/check-completion")
+async def check_completion(user_id: str, grade: int, level: int):
+    # Look for an assignment for this specific grade and level
+    assignment = db["learning_assignments"].find_one({
+        "user_id": user_id, 
+        "grade": grade, 
+        "level": level
+    })
+    
+    # If no assignment exists, or if it is marked as COMPLETED, they can re-test
+    if not assignment or assignment.get("status") == "COMPLETED":
+        return {"can_retest": True}
+        
+    return {"can_retest": False}
+
+# Update the status to COMPLETED when they finish activities
+@router.post("/learning/update-status")
+async def update_status(data: dict):
+    db["learning_assignments"].update_one(
+        {
+            "user_id": data.get("user_id"), 
+            "grade": data.get("grade"), 
+            "level": data.get("level")
+        },
+        {"$set": {"status": data.get("status"), "completed_at": datetime.utcnow()}},
+        upsert=True
+    )
+    return {"ok": True}
