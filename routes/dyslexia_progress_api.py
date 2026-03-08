@@ -170,7 +170,7 @@ def get_assigned_learning_path(
         "eligible": True,
         "risk_level": risk_level
     }
-
+############################################################
 
 # Check if the user is allowed to test or must do learning first
 @router.get("/learning/check-completion")
