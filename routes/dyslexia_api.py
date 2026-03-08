@@ -377,6 +377,133 @@ async def analyze_audio(
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
+@router.post("/submit-audio")
+async def submit_audio(
+    username: str = Form(...),
+    user_id: Optional[str] = Form(None),
+    reference_text: str = Form(...),
+    duration: Optional[float] = Form(None),
+    grade: Optional[int] = Form(None),
+    level: Optional[int] = Form(None),
+    eye_metrics: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+):
+    tmp_path = None
+    try:
+        audio_bytes = await file.read()
+
+        audio_doc = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "data": Binary(audio_bytes),
+            "grade": grade,
+            "level": level,
+            "duration": duration,
+            "created_at": datetime.utcnow(),
+        }
+        audio_result = db["audio_files"].insert_one(audio_doc)
+        audio_id = audio_result.inserted_id
+
+        suffix = os.path.splitext(file.filename)[1] or ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(audio_bytes)
+            tmp_path = tmp_file.name
+
+        with open(tmp_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="gpt-4o-transcribe",
+                file=audio_file
+            )
+
+        transcript_text = transcription.text.strip()
+        metrics = compute_metrics(reference_text, transcript_text, duration)
+
+        eye_data = {}
+        if eye_metrics:
+            try:
+                eye_data = json.loads(eye_metrics)
+            except Exception:
+                eye_data = {}
+
+        try:
+            dyslexia_risk = predict_dyslexia_risk_ml(
+                audio_metrics=metrics,
+                eye_metrics=eye_data,
+                duration=duration
+            )
+        except Exception:
+            dyslexia_risk = compute_dyslexia_risk(metrics, eye_data)
+
+        reading_doc = {
+            "username": username,
+            "user_id": user_id,
+            "audio_file_id": audio_id,
+            "grade": grade,
+            "level": level,
+            "duration": duration,
+
+            "audio_id": str(audio_id),
+            "audio_url": f"http://localhost:8000/audio/{audio_id}",
+            "audio_metrics": metrics,
+
+            "eye_tracking": {
+                "fixation_count": eye_data.get("fixation_count", 0),
+                "avg_fixation_ms": eye_data.get("avg_fixation_ms", 0),
+                "regression_count": eye_data.get("regression_count", 0),
+                "saccade_count": eye_data.get("saccade_count", 0),
+                "blink_rate_per_min": eye_data.get("blink_rate_per_min", 0),
+            },
+            "dyslexia_assessment": dyslexia_risk,
+            "created_at": datetime.utcnow(),
+        }
+
+        reading_result = db["readings"].insert_one(reading_doc)
+
+        return {
+            "ok": True,
+            "reading_id": str(reading_result.inserted_id),
+            "metrics": metrics,
+            "eye_tracking": eye_data,
+            "dyslexia_assessment": dyslexia_risk,
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": f"Transcription failed: {e}"}
+
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+# ---------- 3) FINAL SESSION SUBMIT ----------
+class SessionPayload(BaseModel):
+    username: str
+    user_id: Optional[str] = None
+    grade: int
+    level: int
+
+    total_words: int
+    total_correct: int
+    total_time_seconds: int
+    overall_accuracy: float
+
+    mean_sentence_accuracy: float
+    sentence_accuracy_std_dev: float
+
+    avg_WER: float
+    avg_CER: float
+    avg_words_per_second: float
+
+    incorrect_words_all: List[str]
+
+    avg_fixation_time: float
+    avg_regression_count: float
+    avg_saccade_count: float
+    avg_blink_rate_per_min: float
+
+    sentences: List[Dict[str, Any]]
+
+
 # ---------- 2) SESSION SUBMISSION (HYBRID ML) ----------
 @router.post("/submit-session")
 def submit_session(payload: SessionPayload):
