@@ -225,67 +225,53 @@ async def generate_tts(text: str = Form(...)):
 
 @router.post("/submit-session")
 def submit_session(payload: SessionPayload):
-    audio_metrics = {
-        "accuracy_percent": payload.overall_accuracy,
-        "wer": payload.avg_WER,
-        "cer": payload.avg_CER,
-        "words_per_second": payload.avg_words_per_second,
-        "correct_words": payload.total_correct,
+    # 1. Prepare the dictionary specifically for the ML Model
+    # These keys MUST match the FEATURES list in your predict.py
+    ml_input = {
+        "grade": payload.grade,
+        "level": payload.level,
         "total_words": payload.total_words,
+        "overall_accuracy": payload.overall_accuracy,
+        "avg_WER": payload.avg_WER,
+        "avg_CER": payload.avg_CER,
+        "total_time_seconds": payload.total_time_seconds,
+        # These are usually binary flags (0 or 1) based on your training data logic
+        "dyslexia_assessment.phonological_risk": 1 if payload.avg_CER > 0.2 else 0, 
+        "dyslexia_assessment.fluency_risk": 1 if payload.avg_words_per_second < 0.5 else 0,
+        "dyslexia_assessment.eye_risk": 1 if payload.avg_regression_count > 10 else 0
     }
 
-    eye_metrics = {
-        "avg_fixation_ms": payload.avg_fixation_time,
-        "regression_count": payload.avg_regression_count,
-        "saccade_count": payload.avg_saccade_count,
-        "blink_rate_per_min": payload.avg_blink_rate_per_min,
-    }
-
+    # 2. Get the prediction from the Trained Model
     try:
-        dyslexia_risk = predict_dyslexia_risk_ml(
-            audio_metrics=audio_metrics,
-            eye_metrics=eye_metrics,
-            duration=None
-        )
-    except Exception:
+        dyslexia_risk = predict_dyslexia_risk_ml(ml_input)
+    except Exception as e:
+        print(f"CRITICAL ML ERROR: {e}")
+        # Manual fallback logic only if the model fails
+        audio_metrics = {"accuracy_percent": payload.overall_accuracy, "wer": payload.avg_WER}
+        eye_metrics = {"regression_count": payload.avg_regression_count}
         dyslexia_risk = compute_dyslexia_risk(audio_metrics, eye_metrics)
 
+    # 3. Save to Database (Keep your existing DB logic!)
     created_at = datetime.utcnow()
-
-# (A) Save full session (existing behavior)
     session_doc = payload.model_dump()
     session_doc["dyslexia_assessment"] = dyslexia_risk
     session_doc["created_at"] = created_at
 
+    # Insert into MongoDB
     result = db["reading_sessions"].insert_one(session_doc)
-
-# (B) Save summary stats separately (NEW)
+    
     stats_doc = {
         "username": payload.username,
         "user_id": payload.user_id,
         "grade": payload.grade,
         "level": payload.level,
-
-    "total_words": payload.total_words,
-    "total_correct": payload.total_correct,
-    "overall_accuracy": payload.overall_accuracy,
-    "total_time_seconds": payload.total_time_seconds,
-
-    "mean_sentence_accuracy": payload.mean_sentence_accuracy,
-    "sentence_accuracy_std_dev": payload.sentence_accuracy_std_dev,
-
-    "avg_WER": payload.avg_WER,
-    "avg_CER": payload.avg_CER,
-    "avg_words_per_second": payload.avg_words_per_second,
-
-    # link to full session (nice to have)
-    "full_session_id": str(result.inserted_id),
-
-    "created_at": created_at,
-}
-
+        "overall_accuracy": payload.overall_accuracy,
+        "full_session_id": str(result.inserted_id),
+        "created_at": created_at,
+    }
     stats_result = db["reading_session_stats"].insert_one(stats_doc)
 
+    # 4. Return the result to Flutter
     return {
         "ok": True,
         "session_id": str(result.inserted_id),
@@ -293,6 +279,78 @@ def submit_session(payload: SessionPayload):
         "dyslexia_assessment": dyslexia_risk
     }
 
+##############################################################################################################################
+# @router.post("/submit-session")
+# def submit_session(payload: SessionPayload):
+#     audio_metrics = {
+#         "accuracy_percent": payload.overall_accuracy,
+#         "wer": payload.avg_WER,
+#         "cer": payload.avg_CER,
+#         "words_per_second": payload.avg_words_per_second,
+#         "correct_words": payload.total_correct,
+#         "total_words": payload.total_words,
+#     }
+
+#     eye_metrics = {
+#         "avg_fixation_ms": payload.avg_fixation_time,
+#         "regression_count": payload.avg_regression_count,
+#         "saccade_count": payload.avg_saccade_count,
+#         "blink_rate_per_min": payload.avg_blink_rate_per_min,
+#     }
+
+#     try:
+#         dyslexia_risk = predict_dyslexia_risk_ml(
+#             audio_metrics=audio_metrics,
+#             eye_metrics=eye_metrics,
+#             duration=None
+#         )
+#     except Exception:
+#         dyslexia_risk = compute_dyslexia_risk(audio_metrics, eye_metrics)
+
+#     created_at = datetime.utcnow()
+
+# # (A) Save full session (existing behavior)
+#     session_doc = payload.model_dump()
+#     session_doc["dyslexia_assessment"] = dyslexia_risk
+#     session_doc["created_at"] = created_at
+
+#     result = db["reading_sessions"].insert_one(session_doc)
+
+# # (B) Save summary stats separately (NEW)
+#     stats_doc = {
+#         "username": payload.username,
+#         "user_id": payload.user_id,
+#         "grade": payload.grade,
+#         "level": payload.level,
+
+#     "total_words": payload.total_words,
+#     "total_correct": payload.total_correct,
+#     "overall_accuracy": payload.overall_accuracy,
+#     "total_time_seconds": payload.total_time_seconds,
+
+#     "mean_sentence_accuracy": payload.mean_sentence_accuracy,
+#     "sentence_accuracy_std_dev": payload.sentence_accuracy_std_dev,
+
+#     "avg_WER": payload.avg_WER,
+#     "avg_CER": payload.avg_CER,
+#     "avg_words_per_second": payload.avg_words_per_second,
+
+#     # link to full session (nice to have)
+#     "full_session_id": str(result.inserted_id),
+
+#     "created_at": created_at,
+# }
+
+#     stats_result = db["reading_session_stats"].insert_one(stats_doc)
+
+#     return {
+#         "ok": True,
+#         "session_id": str(result.inserted_id),
+#         "stats_id": str(stats_result.inserted_id),
+#         "dyslexia_assessment": dyslexia_risk
+#     }
+
+##################################################################################################################################
 # import os
 # import json
 # import tempfile
