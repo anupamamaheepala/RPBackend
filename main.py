@@ -4,6 +4,8 @@ from routes.dyslexia_routes import router as dyslexia_router
 from routes.dysgraphia_routes import router as dysgraphia_router
 from routes.adhd_routes import router as adhd_router
 
+from routes.learning_plan_routes import router as learning_plan_router
+
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 import io
@@ -36,6 +38,7 @@ app = FastAPI(
 # --- REGISTER ROUTERS ---
 app.include_router(dyslexia_router)
 app.include_router(adhd_router)
+app.include_router(learning_plan_router)
 
 app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
