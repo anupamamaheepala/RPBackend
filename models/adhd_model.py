@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
-from datetime import datetime
 
 
 class TaskResponseTimes(BaseModel):
@@ -10,25 +9,25 @@ class TaskResponseTimes(BaseModel):
 
 
 class ADHDSubmissionRequest(BaseModel):
-    grade:               int                         = 3
+    grade:               int                          = 3
     total_correct:       int
     total_premature:     int
     total_wrong:         int
-    overall_accuracy:    Optional[float]             = None
-    timestamp:           Optional[str]               = None
-    child_id:            Optional[str]               = None
-    task_response_times: Optional[TaskResponseTimes] = None  # ── NEW
+    overall_accuracy:    Optional[float]              = None
+    timestamp:           Optional[str]                = None
+    child_id:            Optional[str]                = None
+    task_response_times: Optional[TaskResponseTimes]  = None
 
 
 class ComputedMetrics(BaseModel):
-    total_attempts:      int
-    overall_accuracy:    float   # recomputed server-side
-    impulsivity_ratio:   float   # premature / attempts
-    inattention_score:   float   # wrong     / attempts
-    attention_label:     str     # "high" | "medium" | "low"
-    rt_mean_ms:          Optional[float] = None   # ── NEW
-    rt_cv:               Optional[float] = None   # ── NEW: key ML feature
-    rt_cv_per_task:      Optional[Dict[str, Optional[float]]] = None  # ── NEW
+    total_attempts:    int
+    overall_accuracy:  float
+    impulsivity_ratio: float
+    inattention_score: float
+    attention_label:   str
+    rt_mean_ms:        Optional[float]                     = None
+    rt_cv:             Optional[float]                     = None
+    rt_cv_per_task:    Optional[Dict[str, Optional[float]]] = None
 
 
 class ADHDSubmissionResponse(BaseModel):
