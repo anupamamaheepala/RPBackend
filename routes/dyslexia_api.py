@@ -350,6 +350,7 @@ async def analyze_audio(
     grade: Optional[int] = Form(None),
     level: Optional[int] = Form(None),
     sentence_index: Optional[int] = Form(None),
+    eye_metrics: Optional[str] = Form(None), # Add this back
     file: UploadFile = File(...),
 ):
     tmp_path = None
@@ -361,18 +362,29 @@ async def analyze_audio(
             tmp_path = tmp_file.name
 
         with open(tmp_path, "rb") as audio_file:
+            # Note: Ensure model name is "whisper-1" or "gpt-4o-audio-preview" depending on your OpenAI tier
             transcription = client.audio.transcriptions.create(
-                model="gpt-4o-audio-preview", # Optimized for clarity in Sinhala
+                model="whisper-1", 
                 file=audio_file
             )
 
         transcript_text = transcription.text.strip()
+        
+        # Calculate metrics for THIS sentence
         metrics = compute_metrics(reference_text, transcript_text, duration)
 
-        return {"ok": True, "metrics": metrics, "sentence_index": sentence_index}
+        # Return metrics so the frontend can store them for the final session
+        return {
+            "ok": True, 
+            "metrics": metrics, 
+            "transcript": transcript_text,
+            "sentence_index": sentence_index
+        }
 
     except Exception as e:
-        return {"ok": False, "error": f"Analyze failed: {e}"}
+        print(f"Analyze Error: {e}")
+        return {"ok": False, "error": f"Analyze failed: {str(e)}"}
+
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
