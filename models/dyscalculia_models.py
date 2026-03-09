@@ -12,7 +12,20 @@ class DyscalculiaResult(BaseModel):
     retries: int             
     backtracks: int          
     skipped_items: int       
-    wrong_count: int         # <-- ADDED: Tracks total incorrect check attempts
+    wrong_count: int         
     completion_time: float   
     risk_level: Optional[str] = None  
     created_at: Optional[datetime] = None
+
+# --- NEW: Model for Learning Path Micro-Missions ---
+class LearningMetrics(BaseModel):
+    user_id: str
+    grade: int
+    accuracy: int
+    wrong_count: int
+    hesitation_time_avg: float
+    response_time_avg: float
+    retries: int
+    backtracks: int
+    skipped_items: int
+    completion_time: float
