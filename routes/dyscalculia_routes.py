@@ -68,3 +68,35 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/dyscalculia/results/{user_id}")
+async def get_user_dyscalculia_results(user_id: str):
+    try:
+        # 1. Fetch all results for this user, sorted by newest first (-1)
+        # This ensures the first time we see a (grade, task) it is the latest one.
+        cursor = db["dyscalculia_results"].find({"user_id": user_id}).sort("created_at", -1)
+        all_results = list(cursor)
+
+        # 2. Filter to keep only the latest result per Grade & Task Number
+        latest_results_map = {}
+        for res in all_results:
+            key = f"grade_{res['grade']}_task_{res['task_number']}"
+            
+            if key not in latest_results_map:
+                # Convert ObjectId and datetime for JSON serialization
+                res["_id"] = str(res["_id"])
+                if "created_at" in res and res["created_at"]:
+                    res["created_at"] = res["created_at"].isoformat()
+                
+                latest_results_map[key] = res
+
+        # 3. Convert dictionary back to a list
+        final_results = list(latest_results_map.values())
+        
+        # 4. Optional: Sort the final list sequentially by Grade, then Task Number
+        final_results.sort(key=lambda x: (x["grade"], x["task_number"]))
+
+        return {"ok": True, "results": final_results}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
