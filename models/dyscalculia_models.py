@@ -17,7 +17,6 @@ class DyscalculiaResult(BaseModel):
     risk_level: Optional[str] = None  
     created_at: Optional[datetime] = None
 
-# --- NEW: Model for Learning Path Micro-Missions ---
 class LearningMetrics(BaseModel):
     user_id: str
     grade: int

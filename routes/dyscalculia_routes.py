@@ -2,7 +2,7 @@ import os
 import joblib
 import numpy as np
 import random
-import __main__  # Required to map the class for joblib
+import __main__ 
 from fastapi import APIRouter, HTTPException
 from services.db_service import get_db
 from models.dyscalculia_models import DyscalculiaResult, LearningMetrics
@@ -14,8 +14,6 @@ db = get_db()
 # ==========================================
 # 1. DEFINE RULE ENGINE CLASS FOR JOBLIB
 # ==========================================
-# We must define the class here so the .pkl file knows how to reconstruct itself 
-# when the FastAPI server starts.
 class AdaptiveLearningPathEngine:
     def __init__(self, math_questions_data):
         self.question_bank = math_questions_data
@@ -72,7 +70,6 @@ class AdaptiveLearningPathEngine:
             return questions_pool
         return random.sample(questions_pool, count)
 
-# Map the class to __main__ so joblib finds it exactly where it expects to
 __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 
 # ==========================================
@@ -80,7 +77,6 @@ __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 # ==========================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# --- LOAD THE ML MODEL (DETECTION) ---
 MODEL_PATH = os.path.join(current_dir, "dyscalculia_rf_model.pkl")
 rf_model = None
 try:
@@ -89,7 +85,6 @@ try:
 except Exception as e:
     print(f"Warning: Could not load ML model at {MODEL_PATH}. Error: {e}")
 
-# --- LOAD THE RULE ENGINE MODEL (LEARNING PATH) ---
 RULE_ENGINE_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
 rule_engine = None
 try:
@@ -107,7 +102,6 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
     try:
         risk_level_str = "Pending/Error"
         
-        # Predict Risk Level using the ML Model
         if rf_model is not None:
             features = np.array([[
                 result.grade,
@@ -127,7 +121,6 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         else:
             print("Model not loaded. Skipping ML prediction.")
 
-        # Prepare and insert data
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
         result_dict["created_at"] = datetime.utcnow()
@@ -174,12 +167,10 @@ async def get_user_dyscalculia_results(user_id: str):
 # ==========================================
 @router.get("/dyscalculia/learning-state/{user_id}")
 async def get_learning_state(user_id: str):
-    """Fetches the student's current difficulty level and task count."""
     try:
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id})
         
         if not state:
-            # First time playing: Check ML detection history to set start level
             detection = db["dyscalculia_results"].find_one({"user_id": user_id}, sort=[("created_at", -1)])
             start_level = "easy"
             
@@ -203,29 +194,30 @@ async def get_learning_state(user_id: str):
 
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
-    """Fetches exactly 5 random questions for the specified grade and level."""
     try:
-        # Ensure collection name dynamically matches the grade (e.g., grade_03_maths)
-        collection_name = f"grade_{grade:02d}_maths"
+        # FIXED QUERY: Look inside the single document in the math_questions collection
+        grade_key = f"math_tasks_grade_{grade:02d}"
+        level_key = level.lower()
         
-        # MongoDB $sample aggregation for fast random fetching
-        pipeline = [
-            {"$match": {"difficulty": level.lower()}},
-            {"$sample": {"size": 5}}
-        ]
-        questions = list(db[collection_name].aggregate(pipeline))
+        doc = db["math_questions"].find_one({})
         
-        for q in questions:
-            q["_id"] = str(q["_id"])
+        if not doc or grade_key not in doc or level_key not in doc[grade_key]:
+            return {"ok": False, "questions": []}
             
-        return {"ok": True, "questions": questions}
+        questions_pool = doc[grade_key][level_key]
+        
+        if len(questions_pool) >= 5:
+            selected_questions = random.sample(questions_pool, 5)
+        else:
+            selected_questions = questions_pool
+            
+        return {"ok": True, "questions": selected_questions}
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
-    """Evaluates a 5-question micro-mission and updates the student's learning path."""
     try:
         if rule_engine is None:
             raise HTTPException(status_code=500, detail="Rule Engine Model is not loaded.")
@@ -233,7 +225,6 @@ async def submit_learning_task(metrics: LearningMetrics):
         state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id})
         current_level = state["current_level"] if state else "easy"
         
-        # 1. Evaluate using Rule Engine
         metrics_dict = metrics.dict()
         evaluation = rule_engine.evaluate_performance(current_level, metrics_dict)
         
@@ -241,7 +232,6 @@ async def submit_learning_task(metrics: LearningMetrics):
         next_level = evaluation["next_level"] 
         message = evaluation["message"]
         
-        # 2. Update the student's overall state
         new_tasks_completed = state.get("tasks_completed", 0) + 1
         
         db["dyscalculia_learning_state"].update_one(
@@ -252,7 +242,6 @@ async def submit_learning_task(metrics: LearningMetrics):
             }}
         )
         
-        # 3. Save to learning history
         history_record = metrics_dict.copy()
         history_record["evaluated_action"] = action
         history_record["level_played"] = current_level
