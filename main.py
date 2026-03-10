@@ -1,6 +1,12 @@
 # main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from routes.dyslexia_routes import router as dyslexia_router
+from routes.dysgraphia_routes import router as dysgraphia_router
+from routes.adhd_routes import router as adhd_router
+
+from routes.learning_plan_routes import router as learning_plan_router
+from routes.learning_task_routes import router as learning_task_router
 
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
@@ -15,7 +21,22 @@ from routes.dyscalculia_routes import router as dyscalculia_router
 from routes.auth_routes import router as auth_router
 from routes.dyslexia_progress_api import router as learning_router
 
-
+from pydantic import BaseModel
+from typing import Optional
+from jiwer import wer
+from datetime import datetime
+from bson import Binary
+from openai import OpenAI
+import tempfile
+import os
+import json
+from services.db_service import get_db
+from config.settings import settings
+import re
+from difflib import SequenceMatcher
+import re
+from jiwer import wer as jiwer_wer
+# -----------------------------
 
 app = FastAPI(
     title="Reading Proficiency (RP) Backend",
@@ -27,6 +48,9 @@ app = FastAPI(
 app.include_router(dyslexia_sentence_router)   # /get-random  
 app.include_router(dyslexia_api_router)
 app.include_router(adhd_router)
+app.include_router(learning_plan_router)
+app.include_router(learning_task_router)
+
 app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
 app.include_router(auth_router)
