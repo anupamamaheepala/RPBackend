@@ -62,21 +62,30 @@ TASK_DEFINITIONS = {
 
 def _select_tasks(impulsivity: float, inattention: float,
                   accuracy: float) -> tuple[list, str]:
-    """Return (task_id_list, dominant_deficit)"""
+    """
+    Return (task_id_list, dominant_deficit).
+    Always returns minimum 3 tasks so the child has enough work per session.
+    Primary tasks are chosen by deficit profile; a third task is added if needed.
+    """
     high_imp  = impulsivity > 0.25
     high_inat = inattention > 0.25
     low_acc   = accuracy    < 0.50
 
     if high_imp and high_inat:
-        return ["gonogo", "audio_sequence"], "mixed"
+        # Both deficits — cover impulsivity, inattention, plus accuracy check
+        return ["gonogo", "audio_sequence", "wait_match"], "mixed"
     elif high_imp:
-        return ["gonogo", "wait_match"], "impulsivity"
+        # Impulsivity dominant — add spot_change as third (sustained attention)
+        return ["gonogo", "wait_match", "spot_change"], "impulsivity"
     elif high_inat:
-        return ["audio_sequence", "spot_change"], "inattention"
+        # Inattention dominant — add attention_grid as third (maintenance)
+        return ["audio_sequence", "spot_change", "attention_grid"], "inattention"
     elif low_acc:
-        return ["wait_match", "spot_change"], "accuracy"
+        # Low accuracy — add gonogo to build response control
+        return ["wait_match", "spot_change", "gonogo"], "accuracy"
     else:
-        return ["attention_grid"], "maintenance"
+        # Profile A / all normal — three maintenance tasks
+        return ["attention_grid", "spot_change", "wait_match"], "maintenance"
 
 
 # ── Difficulty logic ──────────────────────────────────────────────────────────
