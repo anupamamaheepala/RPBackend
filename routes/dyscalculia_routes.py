@@ -104,22 +104,13 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         
         if rf_model is not None:
             features = np.array([[
-                result.grade,
-                result.task_number,
-                result.accuracy,
-                result.response_time_avg,
-                result.hesitation_time_avg,
-                result.retries,
-                result.backtracks,
-                result.skipped_items,
-                result.wrong_count,
-                result.completion_time
+                result.grade, result.task_number, result.accuracy,
+                result.response_time_avg, result.hesitation_time_avg,
+                result.retries, result.backtracks, result.skipped_items,
+                result.wrong_count, result.completion_time
             ]])
-            
             prediction = rf_model.predict(features)[0]
             risk_level_str = str(prediction)
-        else:
-            print("Model not loaded. Skipping ML prediction.")
 
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
@@ -127,12 +118,7 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         
         insert_result = db["dyscalculia_results"].insert_one(result_dict)
         
-        return {
-            "ok": True, 
-            "id": str(insert_result.inserted_id),
-            "risk_level": risk_level_str,
-            "message": "Results and prediction saved successfully"
-        }
+        return {"ok": True, "id": str(insert_result.inserted_id), "risk_level": risk_level_str}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -145,19 +131,15 @@ async def get_user_dyscalculia_results(user_id: str):
         latest_results_map = {}
         for res in all_results:
             key = f"grade_{res['grade']}_task_{res['task_number']}"
-            
             if key not in latest_results_map:
                 res["_id"] = str(res["_id"])
                 if "created_at" in res and res["created_at"]:
                     res["created_at"] = res["created_at"].isoformat()
-                
                 latest_results_map[key] = res
 
         final_results = list(latest_results_map.values())
         final_results.sort(key=lambda x: (x["grade"], x["task_number"]))
-
         return {"ok": True, "results": final_results}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -173,18 +155,11 @@ async def get_learning_state(user_id: str):
         if not state:
             detection = db["dyscalculia_results"].find_one({"user_id": user_id}, sort=[("created_at", -1)])
             start_level = "easy"
-            
             if detection:
-                if detection["risk_level"] == "No Dyscalculia":
-                    start_level = "hard"
-                elif detection["risk_level"] == "Mild Dyscalculia":
-                    start_level = "medium"
+                if detection["risk_level"] == "No Dyscalculia": start_level = "hard"
+                elif detection["risk_level"] == "Mild Dyscalculia": start_level = "medium"
                     
-            state = {
-                "user_id": user_id, 
-                "current_level": start_level, 
-                "tasks_completed": 0
-            }
+            state = {"user_id": user_id, "current_level": start_level, "tasks_completed": 0}
             db["dyscalculia_learning_state"].insert_one(state)
             
         return {"level": state["current_level"], "tasks_completed": state.get("tasks_completed", 0)}
@@ -195,17 +170,14 @@ async def get_learning_state(user_id: str):
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
     try:
-        # FIXED QUERY: Look inside the single document in the math_questions collection
         grade_key = f"math_tasks_grade_{grade:02d}"
         level_key = level.lower()
         
         doc = db["math_questions"].find_one({})
-        
         if not doc or grade_key not in doc or level_key not in doc[grade_key]:
             return {"ok": False, "questions": []}
             
         questions_pool = doc[grade_key][level_key]
-        
         if len(questions_pool) >= 5:
             selected_questions = random.sample(questions_pool, 5)
         else:
@@ -219,8 +191,7 @@ async def get_learning_questions(grade: int, level: str):
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
     try:
-        if rule_engine is None:
-            raise HTTPException(status_code=500, detail="Rule Engine Model is not loaded.")
+        if rule_engine is None: raise HTTPException(status_code=500, detail="Rule Engine Model not loaded.")
             
         state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id})
         current_level = state["current_level"] if state else "easy"
@@ -231,15 +202,11 @@ async def submit_learning_task(metrics: LearningMetrics):
         action = evaluation["action"]       
         next_level = evaluation["next_level"] 
         message = evaluation["message"]
-        
         new_tasks_completed = state.get("tasks_completed", 0) + 1
         
         db["dyscalculia_learning_state"].update_one(
             {"user_id": metrics.user_id},
-            {"$set": {
-                "current_level": next_level, 
-                "tasks_completed": new_tasks_completed
-            }}
+            {"$set": {"current_level": next_level, "tasks_completed": new_tasks_completed}}
         )
         
         history_record = metrics_dict.copy()
@@ -247,15 +214,84 @@ async def submit_learning_task(metrics: LearningMetrics):
         history_record["level_played"] = current_level
         history_record["next_level"] = next_level
         history_record["created_at"] = datetime.utcnow()
-        
         db["dyscalculia_learning_history"].insert_one(history_record)
         
+        return {"ok": True, "action": action, "next_level": next_level, "message": message, "tasks_completed": new_tasks_completed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# 5. SPECIAL TASK & RESULTS ROUTES (NEW)
+# ==========================================
+@router.post("/dyscalculia/submit-special-task")
+async def submit_special_task(result: DyscalculiaResult):
+    """Saves the 5th-round special task to a new collection and resets learning state."""
+    try:
+        risk_level_str = "Pending/Error"
+        
+        if rf_model is not None:
+            features = np.array([[
+                result.grade, result.task_number, result.accuracy,
+                result.response_time_avg, result.hesitation_time_avg,
+                result.retries, result.backtracks, result.skipped_items,
+                result.wrong_count, result.completion_time
+            ]])
+            prediction = rf_model.predict(features)[0]
+            risk_level_str = str(prediction)
+
+        # 1. Save to new collection
+        result_dict = result.dict()
+        result_dict["risk_level"] = risk_level_str
+        result_dict["created_at"] = datetime.utcnow()
+        db["dyscalculia_special_results"].insert_one(result_dict)
+        
+        # 2. Reset Learning State to prevent infinite loop & adjust difficulty!
+        start_level = "easy"
+        if risk_level_str == "No Dyscalculia": start_level = "hard"
+        elif risk_level_str == "Mild Dyscalculia": start_level = "medium"
+            
+        db["dyscalculia_learning_state"].update_one(
+            {"user_id": result.user_id},
+            {"$set": {
+                "current_level": start_level, 
+                "tasks_completed": 0 # RESET COUNTER
+            }},
+            upsert=True
+        )
+        
+        return {"ok": True, "risk_level": risk_level_str}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/dyscalculia/learning-history/{user_id}")
+async def get_learning_history(user_id: str):
+    """Fetches the latest special task result AND the last 5 micro-missions."""
+    try:
+        # Fetch latest Special Task Result
+        special_result = db["dyscalculia_special_results"].find_one(
+            {"user_id": user_id}, sort=[("created_at", -1)]
+        )
+        if special_result:
+            special_result["_id"] = str(special_result["_id"])
+            if "created_at" in special_result and special_result["created_at"]:
+                special_result["created_at"] = special_result["created_at"].isoformat()
+                
+        # Fetch last 5 Learning Missions
+        cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id}
+        ).sort("created_at", -1).limit(5)
+        
+        history_list = list(cursor)
+        for h in history_list:
+            h["_id"] = str(h["_id"])
+            if "created_at" in h and h["created_at"]:
+                h["created_at"] = h["created_at"].isoformat()
+                
         return {
             "ok": True,
-            "action": action,
-            "next_level": next_level,
-            "message": message,
-            "tasks_completed": new_tasks_completed
+            "special_result": special_result,
+            "history": history_list
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
