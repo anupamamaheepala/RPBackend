@@ -281,31 +281,64 @@ def submit_session(payload: SessionPayload):
 
 @router.get("/check-task-lock")
 async def check_task_lock(user_id: str, grade: int, level: int):
-    # 1. Check if they have ever done a task for this level
-    last_stat = db["reading_session_stats"].find_one(
+
+    # 1️⃣ Check if the user has ever done detection for this grade/level
+    last_session = db["reading_session_stats"].find_one(
         {"user_id": user_id, "grade": grade, "level": level},
         sort=[("created_at", -1)]
     )
 
-    if not last_stat:
-        # No previous task = NOT LOCKED (They need to do their first assessment)
+    # If no session exists → first attempt → allow detection
+    if not last_session:
         return {"is_locked": False}
 
-    # 2. If they have a task, check if the Learning Path for it is finished
-    # We look for a 'module_completed' flag in your progress collection
-    progress = db["learning_progress"].find_one({
+    # 2️⃣ Fetch learning modules assigned for this level
+    progress_records = list(db["learning_progress"].find({
         "user_id": user_id,
         "grade": grade,
-        "level": level,
-        "module_number": 1
-    })
+        "level": level
+    }))
 
-    if progress and progress.get("is_completed", False):
-        # Path is finished = UNLOCKED (They can re-assess to move to next level)
+    # If no modules assigned yet → allow
+    if not progress_records:
         return {"is_locked": False}
-    else:
-        # Path exists but not finished = LOCKED
-        return {"is_locked": True}
+
+    # 3️⃣ Check if all modules completed
+    all_completed = all(p.get("is_completed", False) for p in progress_records)
+
+    if all_completed:
+        return {"is_locked": False}
+
+    # Otherwise lock detection
+    return {"is_locked": True}
+
+# @router.get("/check-task-lock")
+# async def check_task_lock(user_id: str, grade: int, level: int):
+#     # 1. Check if they have ever done a task for this level
+#     last_stat = db["reading_session_stats"].find_one(
+#         {"user_id": user_id, "grade": grade, "level": level},
+#         sort=[("created_at", -1)]
+#     )
+
+#     if not last_stat:
+#         # No previous task = NOT LOCKED (They need to do their first assessment)
+#         return {"is_locked": False}
+
+#     # 2. If they have a task, check if the Learning Path for it is finished
+#     # We look for a 'module_completed' flag in your progress collection
+#     progress = db["learning_progress"].find_one({
+#         "user_id": user_id,
+#         "grade": grade,
+#         "level": level,
+#         "module_number": 1
+#     })
+
+#     if progress and progress.get("is_completed", False):
+#         # Path is finished = UNLOCKED (They can re-assess to move to next level)
+#         return {"is_locked": False}
+#     else:
+#         # Path exists but not finished = LOCKED
+#         return {"is_locked": True}
 
 @router.post("/learning/complete-module")
 async def complete_module(data: dict):
@@ -334,32 +367,32 @@ async def complete_module(data: dict):
     return {"ok": True, "message": "Module marked as completed"}
 
 
-@router.get("/dyslexia/check-task-lock")
-async def check_task_lock(user_id: str, grade: int, level: int):
-    # Check if there is a session record for this level
-    last_session = db["reading_session_stats"].find_one(
-        {"user_id": user_id, "grade": grade, "level": level},
-        sort=[("created_at", -1)]
-    )
+# @router.get("/dyslexia/check-task-lock")
+# async def check_task_lock(user_id: str, grade: int, level: int):
+#     # Check if there is a session record for this level
+#     last_session = db["reading_session_stats"].find_one(
+#         {"user_id": user_id, "grade": grade, "level": level},
+#         sort=[("created_at", -1)]
+#     )
 
-    # If no session exists, the user is new to this level: NOT LOCKED
-    if not last_session:
-        return {"is_locked": False}
+#     # If no session exists, the user is new to this level: NOT LOCKED
+#     if not last_session:
+#         return {"is_locked": False}
 
-    # If a session exists, check if the corresponding learning module is finished
-    progress = db["learning_progress"].find_one({
-        "user_id": user_id,
-        "grade": grade,
-        "level": level,
-        "module_number": 1 # Assuming Module 1 corresponds to the assessment
-    })
+#     # If a session exists, check if the corresponding learning module is finished
+#     progress = db["learning_progress"].find_one({
+#         "user_id": user_id,
+#         "grade": grade,
+#         "level": level,
+#         "module_number": 1 # Assuming Module 1 corresponds to the assessment
+#     })
 
-    # Lock the task if progress is missing or is_completed is False
-    is_locked = True
-    if progress and progress.get("is_completed") == True:
-        is_locked = False
+#     # Lock the task if progress is missing or is_completed is False
+#     is_locked = True
+#     if progress and progress.get("is_completed") == True:
+#         is_locked = False
 
-    return {"is_locked": is_locked}
+#     return {"is_locked": is_locked}
 ##############################################################################################################################
 # @router.post("/submit-session")
 # def submit_session(payload: SessionPayload):
