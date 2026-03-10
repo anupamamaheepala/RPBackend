@@ -18,6 +18,7 @@ class PromptData(BaseModel):
     formation_correct: Optional[bool] = None  # NEW: from ML Kit (True/False/None)
 
 class DysgraphiaSubmission(BaseModel):
+    user_id: Optional[str] = None              # logged-in user ID from Flutter session
     grade: int
     activity_type: str
     prompts_data: List[PromptData]
