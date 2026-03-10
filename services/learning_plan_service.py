@@ -10,7 +10,6 @@ from services.db_service import get_db
 PROFILE_PARAMS = {
 
     # Profile A — High Attention
-    # Can handle more items, longer sessions, timed challenges
     "profile_a": AdaptationParams(
         chunk_size=4,
         session_minutes=15,
@@ -23,9 +22,6 @@ PROFILE_PARAMS = {
     ),
 
     # Profile B — Inattention Dominant
-    # Short chunks, dual modality, self-paced, minimal visual noise
-    # Research basis: dual-coding theory — audio+visual improves encoding
-    # for inattentive children (Swanson & Sachse-Lee, 2001)
     "profile_b": AdaptationParams(
         chunk_size=2,
         session_minutes=7,
@@ -38,9 +34,6 @@ PROFILE_PARAMS = {
     ),
 
     # Profile C — Impulsivity Dominant
-    # Moderate chunks, slight time pressure (reduces impulsive errors),
-    # haptic feedback (grounds the child before responding)
-    # Research basis: response inhibition training (Schachar et al., 2004)
     "profile_c": AdaptationParams(
         chunk_size=3,
         session_minutes=10,
@@ -53,7 +46,6 @@ PROFILE_PARAMS = {
     ),
 
     # Profile D — Mixed/Low
-    # Smallest chunks, shortest sessions, maximum support
     "profile_d": AdaptationParams(
         chunk_size=2,
         session_minutes=5,
@@ -68,8 +60,6 @@ PROFILE_PARAMS = {
 
 
 # ── Grade 3 Activity Library ──────────────────────────────────────────────────
-# Each profile gets 4 activities — mix of in-app and teacher-led
-# All activities are grounded in attention research for 8-year-olds
 
 ACTIVITY_LIBRARY = {
 
@@ -156,7 +146,7 @@ ACTIVITY_LIBRARY = {
                 "1. කෙටි වාක්‍ය 2ක් ශ්‍රව්‍ය සමඟ කියවන්න\n"
                 "2. කියවීම නිම වූ පසු ප්‍රශ්නය දිස්වේ\n"
                 "3. ඉහළට scroll කිරීමකින් තොරව ප්‍රශ්නයට පිළිතුරු දෙන්න\n"
-                "4. 5 ප්‍රශ්න නිවැරදිව කරන්නtry කරන්න"
+                "4. 5 ප්‍රශ්න නිවැරදිව කරන්න try කරන්න"
             ),
         ),
         LearningActivity(
@@ -404,20 +394,20 @@ def generate_learning_plan(req: LearningPlanRequest) -> LearningPlanResponse:
     label      = PROFILE_LABELS.get(profile,    "ඔබේ ඉගෙනුම් සැලැස්ම")
 
     plan = LearningPlanResponse(
-        child_id=req.child_id,
-        grade=req.grade,
-        profile=profile,
-        profile_label=label,
-        adaptation_params=params,
-        activities=activities,
-        teacher_note=note,
-        parent_note=p_note,
-        generated_at=datetime.utcnow().isoformat(),
+        child_id          = req.child_id,
+        grade             = req.grade,
+        profile           = profile,
+        profile_label     = label,
+        adaptation_params = params,
+        activities        = activities,
+        teacher_note      = note,
+        parent_note       = p_note,
+        generated_at      = datetime.utcnow().isoformat(),
     )
 
     db = get_db()
     db["learning_plans"].insert_one({
-        **plan.dict(),
+        **plan.model_dump(),            # ✅ Fixed: was plan.dict() — Pydantic v2
         "created_at": datetime.utcnow(),
     })
 
@@ -425,11 +415,14 @@ def generate_learning_plan(req: LearningPlanRequest) -> LearningPlanResponse:
 
 
 def get_latest_plan(child_id: str):
-    db = get_db()
+    db   = get_db()
     plan = db["learning_plans"].find_one(
         {"child_id": child_id},
         sort=[("created_at", -1)],
     )
     if plan:
         plan["_id"] = str(plan["_id"])
+        # ✅ Fixed: convert raw datetime to string before returning
+        if "created_at" in plan and hasattr(plan["created_at"], "isoformat"):
+            plan["created_at"] = plan["created_at"].isoformat()
     return plan

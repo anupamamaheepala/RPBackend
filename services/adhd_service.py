@@ -87,7 +87,7 @@ def _ml_predict_profile(
     return _le.inverse_transform([pred_enc])[0]
 
 
-# ── Main service functions ─────────────────────────────────────────────────────
+# ── Main service functions ────────────────────────────────────────────────────
 def compute_metrics(req: ADHDSubmissionRequest) -> ComputedMetrics:
     total_attempts    = req.total_correct + req.total_wrong + req.total_premature
     accuracy          = req.total_correct   / total_attempts if total_attempts else 0.0
@@ -172,3 +172,56 @@ def save_assessment(req: ADHDSubmissionRequest,
 
     result = db["adhd_submissions"].insert_one(doc)
     return str(result.inserted_id)
+
+
+def get_diagnostic_history(child_id: str) -> dict:
+    """
+    Returns last 10 diagnostic submissions for a child, newest first.
+
+    MongoDB stores:
+      "metrics"           → remapped to "computed_metrics" for Flutter
+      "client_timestamp"  → preferred timestamp string (sent by Flutter)
+      "created_at"        → datetime fallback
+    """
+    db = get_db()
+
+    records = list(
+        db["adhd_submissions"]
+        .find({"child_id": child_id})
+        .sort("created_at", -1)
+        .limit(10)
+    )
+
+    clean = []
+    for r in records:
+        # Remap "metrics" → "computed_metrics"
+        raw_metrics = r.get("metrics", {})
+
+        # Prefer client_timestamp (Flutter ISO string), fall back to created_at
+        ts = r.get("client_timestamp")
+        if not ts:
+            created = r.get("created_at")
+            ts = created.isoformat() if hasattr(created, "isoformat") else str(created)
+
+        clean.append({
+            "child_id":        r.get("child_id", child_id),
+            "grade":           r.get("grade", 3),
+            "timestamp":       ts,
+            "total_correct":   r.get("total_correct",   0),
+            "total_premature": r.get("total_premature", 0),
+            "total_wrong":     r.get("total_wrong",     0),
+            "computed_metrics": {
+                "attention_label":   raw_metrics.get("attention_label",   ""),
+                "overall_accuracy":  raw_metrics.get("overall_accuracy",  0.0),
+                "impulsivity_ratio": raw_metrics.get("impulsivity_ratio", 0.0),
+                "inattention_score": raw_metrics.get("inattention_score", 0.0),
+                "rt_mean_ms":        raw_metrics.get("rt_mean_ms"),
+                "rt_cv":             raw_metrics.get("rt_cv"),
+            },
+        })
+
+    return {
+        "child_id":       child_id,
+        "total_sessions": len(clean),
+        "history":        clean,
+    }

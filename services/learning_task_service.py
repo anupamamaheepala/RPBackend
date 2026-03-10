@@ -63,7 +63,6 @@ TASK_DEFINITIONS = {
 def _select_tasks(impulsivity: float, inattention: float,
                   accuracy: float) -> tuple[list, str]:
     """Return (task_id_list, dominant_deficit)"""
-
     high_imp  = impulsivity > 0.25
     high_inat = inattention > 0.25
     low_acc   = accuracy    < 0.50
@@ -84,10 +83,9 @@ def _select_tasks(impulsivity: float, inattention: float,
 
 def _get_difficulty(child_id: str, task_id: str, session_number: int) -> int:
     """
-    Determine difficulty based on past performance:
-    - Session 1-2 or no history → level 1
-    - Score ≥ 60% for 2 sessions → level 2
-    - Score ≥ 75% for 2 sessions at level 2 → level 3
+    Level 1 by default.
+    Level 2 if last 2 sessions scored >= 60%.
+    Level 3 if last 2 sessions at level 2 scored >= 75%.
     """
     db = get_db()
     past = list(
@@ -100,7 +98,7 @@ def _get_difficulty(child_id: str, task_id: str, session_number: int) -> int:
     if len(past) < 2:
         return 1
 
-    scores = [r["score_percent"] for r in past]
+    scores       = [r["score_percent"] for r in past]
     current_diff = past[0].get("difficulty", 1)
 
     if current_diff == 1 and all(s >= 60 for s in scores):
@@ -113,11 +111,21 @@ def _get_difficulty(child_id: str, task_id: str, session_number: int) -> int:
 # ── Session number ────────────────────────────────────────────────────────────
 
 def _get_session_number(child_id: str) -> int:
-    db = get_db()
-    count = db["learning_task_results"].count_documents(
-        {"child_id": child_id}
-    )
-    return (count // 2) + 1   # roughly one session = 2 tasks
+    db    = get_db()
+    count = db["learning_task_results"].count_documents({"child_id": child_id})
+    return (count // 2) + 1
+
+
+# ── Serializer ────────────────────────────────────────────────────────────────
+
+def _serialize(doc: dict) -> dict:
+    """Convert ObjectId and datetime fields so JSON serialization never crashes."""
+    doc["_id"] = str(doc["_id"])
+    if "created_at" in doc and hasattr(doc["created_at"], "isoformat"):
+        # Keep as "timestamp" string — Flutter reads this key
+        doc["timestamp"] = doc["created_at"].isoformat()
+        del doc["created_at"]
+    return doc
 
 
 # ── Main service functions ────────────────────────────────────────────────────
@@ -125,17 +133,20 @@ def _get_session_number(child_id: str) -> int:
 def assign_tasks(req: LearningTaskAssignRequest) -> LearningTaskAssignResponse:
     db = get_db()
 
-    # Get latest diagnostic result
+    # ✅ Fixed: sort by "client_timestamp" / "created_at" — NOT "created_at" alone
+    # adhd_submissions stores Flutter's timestamp in "client_timestamp"
+    # and server time in "created_at" — use created_at for correct sort
     latest = db["adhd_submissions"].find_one(
         {"child_id": req.child_id},
         sort=[("created_at", -1)],
     )
 
-    if latest and "computed_metrics" in latest:
-        m            = latest["computed_metrics"]
-        impulsivity  = m.get("impulsivity_ratio",  0.0)
-        inattention  = m.get("inattention_score",  0.0)
-        accuracy     = m.get("overall_accuracy",   1.0)
+    if latest and "metrics" in latest:
+        # ✅ Fixed: adhd_service.py stores under "metrics" not "computed_metrics"
+        m           = latest["metrics"]
+        impulsivity = m.get("impulsivity_ratio", 0.0)
+        inattention = m.get("inattention_score", 0.0)
+        accuracy    = m.get("overall_accuracy",  1.0)
     else:
         # No diagnostic yet — default to inattention tasks
         impulsivity, inattention, accuracy = 0.1, 0.3, 0.6
@@ -172,9 +183,9 @@ def assign_tasks(req: LearningTaskAssignRequest) -> LearningTaskAssignResponse:
 
 
 def save_task_result(result: LearningTaskResult) -> LearningTaskResultResponse:
-    db     = get_db()
-    total  = result.total_trials or 1
-    score  = round((result.correct / total) * 100, 1)
+    db    = get_db()
+    total = result.total_trials or 1
+    score = round((result.correct / total) * 100, 1)
 
     # Determine next difficulty
     past = list(
@@ -201,27 +212,29 @@ def save_task_result(result: LearningTaskResult) -> LearningTaskResultResponse:
     else:
         msg = "ගොඩක් හොඳයි! නැවත උත්සාහ කරන්න! 💪"
 
-    # Average RT
     avg_rt = (
         round(sum(result.response_times_ms) / len(result.response_times_ms))
         if result.response_times_ms else 0
     )
 
+    now = datetime.utcnow()
+
     db["learning_task_results"].insert_one({
-        "child_id":           result.child_id,
-        "grade":              result.grade,
-        "task_id":            result.task_id,
-        "difficulty":         result.difficulty,
-        "correct":            result.correct,
-        "wrong":              result.wrong,
-        "premature":          result.premature,
-        "total_trials":       result.total_trials,
-        "score_percent":      score,
-        "avg_rt_ms":          avg_rt,
-        "response_times_ms":  result.response_times_ms,
-        "session_number":     result.session_number,
-        "next_difficulty":    next_diff,
-        "created_at":         datetime.utcnow(),
+        "child_id":          result.child_id,
+        "grade":             result.grade,
+        "task_id":           result.task_id,
+        "difficulty":        result.difficulty,
+        "correct":           result.correct,
+        "wrong":             result.wrong,
+        "premature":         result.premature,
+        "total_trials":      result.total_trials,
+        "score_percent":     score,
+        "avg_rt_ms":         avg_rt,
+        "response_times_ms": result.response_times_ms,
+        "session_number":    result.session_number,
+        "next_difficulty":   next_diff,
+        "timestamp":         now.isoformat(),  # ✅ string — Flutter reads this
+        "created_at":        now,              # ✅ datetime — for DB sorting
     })
 
     return LearningTaskResultResponse(
@@ -241,6 +254,6 @@ def get_progress(child_id: str) -> dict:
         .sort("created_at", -1)
         .limit(20)
     )
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return {"child_id": child_id, "sessions": results}
+    # ✅ Fixed: serialize all docs — converts _id + created_at safely
+    clean = [_serialize(r) for r in results]
+    return {"child_id": child_id, "sessions": clean}
