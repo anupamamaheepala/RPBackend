@@ -153,16 +153,25 @@ async def get_learning_state(user_id: str):
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id})
         
         if not state:
+            # --- NEW STRICT CHECK: BLOCK IF NO DETECTION ---
             detection = db["dyscalculia_results"].find_one({"user_id": user_id}, sort=[("created_at", -1)])
+            
+            if not detection:
+                return {
+                    "ok": False, 
+                    "error": "not_detected", 
+                    "message": "Student must complete detection first."
+                }
+            
+            # If detection exists, set their adaptive starting level
             start_level = "easy"
-            if detection:
-                if detection["risk_level"] == "No Dyscalculia": start_level = "hard"
-                elif detection["risk_level"] == "Mild Dyscalculia": start_level = "medium"
+            if detection["risk_level"] == "No Dyscalculia": start_level = "hard"
+            elif detection["risk_level"] == "Mild Dyscalculia": start_level = "medium"
                     
             state = {"user_id": user_id, "current_level": start_level, "tasks_completed": 0}
             db["dyscalculia_learning_state"].insert_one(state)
             
-        return {"level": state["current_level"], "tasks_completed": state.get("tasks_completed", 0)}
+        return {"ok": True, "level": state["current_level"], "tasks_completed": state.get("tasks_completed", 0)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -222,11 +231,10 @@ async def submit_learning_task(metrics: LearningMetrics):
 
 
 # ==========================================
-# 5. SPECIAL TASK & RESULTS ROUTES (NEW)
+# 5. SPECIAL TASK & RESULTS ROUTES
 # ==========================================
 @router.post("/dyscalculia/submit-special-task")
 async def submit_special_task(result: DyscalculiaResult):
-    """Saves the 5th-round special task to a new collection and resets learning state."""
     try:
         risk_level_str = "Pending/Error"
         
@@ -240,13 +248,11 @@ async def submit_special_task(result: DyscalculiaResult):
             prediction = rf_model.predict(features)[0]
             risk_level_str = str(prediction)
 
-        # 1. Save to new collection
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
         result_dict["created_at"] = datetime.utcnow()
         db["dyscalculia_special_results"].insert_one(result_dict)
         
-        # 2. Reset Learning State to prevent infinite loop & adjust difficulty!
         start_level = "easy"
         if risk_level_str == "No Dyscalculia": start_level = "hard"
         elif risk_level_str == "Mild Dyscalculia": start_level = "medium"
@@ -255,7 +261,7 @@ async def submit_special_task(result: DyscalculiaResult):
             {"user_id": result.user_id},
             {"$set": {
                 "current_level": start_level, 
-                "tasks_completed": 0 # RESET COUNTER
+                "tasks_completed": 0 
             }},
             upsert=True
         )
@@ -266,9 +272,7 @@ async def submit_special_task(result: DyscalculiaResult):
 
 @router.get("/dyscalculia/learning-history/{user_id}")
 async def get_learning_history(user_id: str):
-    """Fetches the latest special task result AND the last 5 micro-missions."""
     try:
-        # Fetch latest Special Task Result
         special_result = db["dyscalculia_special_results"].find_one(
             {"user_id": user_id}, sort=[("created_at", -1)]
         )
@@ -277,7 +281,6 @@ async def get_learning_history(user_id: str):
             if "created_at" in special_result and special_result["created_at"]:
                 special_result["created_at"] = special_result["created_at"].isoformat()
                 
-        # Fetch last 5 Learning Missions
         cursor = db["dyscalculia_learning_history"].find(
             {"user_id": user_id}
         ).sort("created_at", -1).limit(5)
