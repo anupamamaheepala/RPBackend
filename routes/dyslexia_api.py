@@ -170,6 +170,7 @@ class SessionPayload(BaseModel):
     user_id: Optional[str] = None
     grade: int
     level: int
+    session_type: str = "detection"
 
     total_words: int
     total_correct: int
@@ -265,6 +266,7 @@ def submit_session(payload: SessionPayload):
         "user_id": payload.user_id,
         "grade": payload.grade,
         "level": payload.level,
+        "session_type": payload.session_type,
         "overall_accuracy": payload.overall_accuracy,
         "full_session_id": str(result.inserted_id),
         "created_at": created_at,
@@ -368,22 +370,32 @@ async def complete_module(data: dict):
 
 # ---------- 7) GET USER DYSLEXIA HISTORY ----------
 @router.get("/history")
-async def get_user_history(user_id: str):
+async def get_user_history(user_id: str, session_type: Optional[str] = None):
+    query = {"user_id": user_id}
 
-    sessions = list(db["reading_sessions"].find(
-        {"user_id": user_id}
-    ).sort("created_at", -1))
+    if session_type:
+        query["session_type"] = session_type
+
+    sessions = list(
+        db["reading_sessions"]
+        .find(query)
+        .sort("created_at", -1)
+    )
 
     results = []
 
     for s in sessions:
-
         assessment = s.get("dyslexia_assessment", {})
 
         results.append({
             "grade": s.get("grade"),
             "level": s.get("level"),
+            "session_type": s.get("session_type", "detection"),
             "overall_accuracy": s.get("overall_accuracy", 0),
+            "avg_WER": s.get("avg_WER", 0),
+            "avg_CER": s.get("avg_CER", 0),
+            "avg_words_per_second": s.get("avg_words_per_second", 0),
+            "total_time_seconds": s.get("total_time_seconds", 0),
             "risk_level": assessment.get("risk_level", "UNKNOWN"),
             "created_at": s.get("created_at").strftime("%Y-%m-%d")
         })
@@ -392,6 +404,31 @@ async def get_user_history(user_id: str):
         "ok": True,
         "sessions": results
     }
+# @router.get("/history")
+# async def get_user_history(user_id: str):
+
+#     sessions = list(db["reading_sessions"].find(
+#         {"user_id": user_id}
+#     ).sort("created_at", -1))
+
+#     results = []
+
+#     for s in sessions:
+
+#         assessment = s.get("dyslexia_assessment", {})
+
+#         results.append({
+#             "grade": s.get("grade"),
+#             "level": s.get("level"),
+#             "overall_accuracy": s.get("overall_accuracy", 0),
+#             "risk_level": assessment.get("risk_level", "UNKNOWN"),
+#             "created_at": s.get("created_at").strftime("%Y-%m-%d")
+#         })
+
+#     return {
+#         "ok": True,
+#         "sessions": results
+#     }
 
 # @router.get("/dyslexia/check-task-lock")
 # async def check_task_lock(user_id: str, grade: int, level: int):
