@@ -368,6 +368,20 @@ async def complete_module(data: dict):
     
     return {"ok": True, "message": "Module marked as completed"}
 
+
+@router.get("/has-attempt")
+async def has_attempt(user_id: str, grade: int, level: int):
+
+    session = db["reading_session_stats"].find_one({
+        "user_id": user_id,
+        "grade": grade,
+        "level": level
+    })
+
+    return {
+        "has_attempt": True if session else False
+    }
+
 # ---------- 7) GET USER DYSLEXIA HISTORY ----------
 @router.get("/history")
 async def get_user_history(user_id: str, session_type: Optional[str] = None):
