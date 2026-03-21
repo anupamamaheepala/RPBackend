@@ -375,7 +375,7 @@ async def complete_module(data: dict):
         db["learning_progress"].update_one(
            {"_id": learning_progress["_id"]},
            {"$set": {
-                "is_completed": True,
+                "is_complete": True,
                 "completed_at": datetime.utcnow()
             }}
     )
