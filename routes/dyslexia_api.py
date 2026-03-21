@@ -261,6 +261,18 @@ def submit_session(payload: SessionPayload):
     # Insert into MongoDB
     result = db["reading_sessions"].insert_one(session_doc)
     
+    learning_progress_doc = {
+        "user_id": payload.user_id,
+        "username": payload.username,
+        "grade": payload.grade,
+        "level": payload.level,
+        "risk_level": dyslexia_risk.get("risk_level", "UNKNOWN"),  # Adjust based on your risk structure
+        "created_at": created_at,
+        "is_complete": False
+    }
+
+    db["learning_progress"].insert_one(learning_progress_doc)
+    
     stats_doc = {
         "username": payload.username,
         "user_id": payload.user_id,
@@ -303,16 +315,16 @@ async def check_task_lock(user_id: str, grade: int, level: int):
 
     # If no modules assigned yet → allow
     if not progress_records:
-        return {"is_locked": False}
+        return {"is_locked": True}
 
     # 3️⃣ Check if all modules completed
     all_completed = all(p.get("is_completed", False) for p in progress_records)
 
     if all_completed:
-        return {"is_locked": False}
+        return {"is_locked": True}
 
     # Otherwise lock detection
-    return {"is_locked": True}
+    return {"is_locked": False}
 
 # @router.get("/check-task-lock")
 # async def check_task_lock(user_id: str, grade: int, level: int):
