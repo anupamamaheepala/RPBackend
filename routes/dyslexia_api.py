@@ -260,7 +260,7 @@ def submit_session(payload: SessionPayload):
 
     # Insert into MongoDB
     result = db["reading_sessions"].insert_one(session_doc)
-    
+
     learning_progress_doc = {
         "user_id": payload.user_id,
         "username": payload.username,
@@ -359,26 +359,29 @@ async def complete_module(data: dict):
     user_id = data.get("user_id")
     grade = data.get("grade")
     level = data.get("level")
-    module_number = data.get("module_number")
+    risklevel = data.get("risk_level")
+       # module_number = data.get("module_number")
 
     # Update or insert the completion status
-    db["learning_progress"].update_one(
+    learning_progress = db["learning_progress"].find_one(
         {
             "user_id": user_id,
             "grade": grade,
             "level": level,
-            "module_number": module_number
-        },
-        {
-            "$set": {
+            #"module_number": module_number
+            "risk_level": risklevel
+        })
+    if learning_progress:
+        db["learning_progress"].update_one(
+           {"_id": learning_progress["_id"]},
+           {"$set": {
                 "is_completed": True,
                 "completed_at": datetime.utcnow()
-            }
-        },
-        upsert=True
+            }}
     )
-    
-    return {"ok": True, "message": "Module marked as completed"}
+        return {"ok": True, "message": "Module marked as complete"}
+
+    return {"ok": False, "error": "Module progress not found"}
 
 
 @router.get("/has-attempt")
