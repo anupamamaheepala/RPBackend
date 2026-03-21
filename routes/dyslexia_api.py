@@ -315,10 +315,10 @@ async def check_task_lock(user_id: str, grade: int, level: int):
 
     # If no modules assigned yet → allow
     if not progress_records:
-        return {"is_locked": True}
+        return {"is_locked": False}
 
     # 3️⃣ Check if all modules completed
-    all_completed = all(p.get("is_completed", False) for p in progress_records)
+    all_completed = all(p.get("is_complete", False) for p in progress_records)
 
     if all_completed:
         return {"is_locked": True}
