@@ -433,6 +433,54 @@ async def get_user_history(user_id: str, session_type: Optional[str] = None):
         "ok": True,
         "sessions": results
     }
+
+@router.post("/learning/complete-activity")
+async def complete_activity(data: dict):
+    user_id = data.get("user_id")
+    grade = data.get("grade")
+    level = data.get("level")
+    risk_level = data.get("risk_level")
+
+    # Find the learning progress entry for the user
+    learning_progress = db["learning_progress"].find_one({
+        "user_id": user_id,
+        "grade": grade,
+        "level": level,
+        "risk_level": risk_level
+    })
+
+    if learning_progress:
+        # Update the current_activity index to unlock the next activity
+        current_activity = learning_progress.get("current_activity", 0)
+        db["learning_progress"].update_one(
+            {"_id": learning_progress["_id"]},
+            {"$set": {"current_activity": current_activity + 1}}
+        )
+        return {"ok": True, "message": "Module marked as complete"}
+
+    return {"ok": False, "error": "Progress not found"}
+
+@router.get("/learning/progress")
+async def get_learning_progress(user_id: str, grade: int, level: int, risk_level: str):
+    # Find the learning progress entry for the user, grade, level, and risk level
+    learning_progress = db["learning_progress"].find_one({
+        "user_id": user_id,
+        "grade": grade,
+        "level": level,
+        "risk_level": risk_level
+    })
+
+    if learning_progress:
+        return {
+            "ok": True,
+            "progress": {
+                "current_activity": learning_progress.get("current_activity", 0),  # Tracks the last completed activity
+                "is_complete": learning_progress.get("is_complete", False),  # Whether the module is completed
+                "completed_at": learning_progress.get("completed_at", None),  # Timestamp of when module was completed
+            }
+        }
+
+    return {"ok": False, "error": "Progress not found"}
 # @router.get("/history")
 # async def get_user_history(user_id: str):
 
