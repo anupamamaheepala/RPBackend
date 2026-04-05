@@ -13,11 +13,13 @@ from bson import ObjectId
 from services.db_service import get_db
 import io
 
+
 from routes.dyslexia_routes import router as dyslexia_sentence_router
 from routes.dyslexia_api import router as dyslexia_api_router
 from routes.dyscalculia_routes import router as dyscalculia_router
 from routes.auth_routes import router as auth_router
 from routes.dyslexia_progress_api import router as learning_router
+from routes.dysgraphia_improvement_routes import router as dysgraphia_improvement_router
 
 from pydantic import BaseModel
 from typing import Optional
@@ -53,6 +55,8 @@ app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
 app.include_router(auth_router)
 app.include_router(learning_router)
+app.include_router(dysgraphia_improvement_router)
+
 
 # CORS
 app.add_middleware(
