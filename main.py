@@ -15,8 +15,6 @@ import io
 
 from routes.dyslexia_routes import router as dyslexia_sentence_router
 from routes.dyslexia_api import router as dyslexia_api_router
-from routes.dysgraphia_routes import router as dysgraphia_router
-from routes.adhd_routes import router as adhd_router
 from routes.dyscalculia_routes import router as dyscalculia_router
 from routes.auth_routes import router as auth_router
 from routes.dyslexia_progress_api import router as learning_router
@@ -33,7 +31,7 @@ import json
 from services.db_service import get_db
 from config.settings import settings
 import re
-from difflib import SequenceMatcher
+#from difflib import SequenceMatcher
 import re
 from jiwer import wer as jiwer_wer
 # -----------------------------
