@@ -1,3 +1,4 @@
+#Backend
 # routes/dyslexia_api.py
 import os
 import json
@@ -345,10 +346,10 @@ async def check_task_lock(user_id: str, grade: int, level: int):
     all_completed = all(p.get("is_complete", False) for p in progress_records)
 
     if all_completed:
-        return {"is_locked": True}
+        return {"is_locked": False}
 
     # Otherwise lock detection
-    return {"is_locked": False}
+    return {"is_locked": True}
 
 # @router.get("/check-task-lock")
 # async def check_task_lock(user_id: str, grade: int, level: int):
