@@ -63,7 +63,6 @@ class AdaptiveLearningPathEngine:
         }
         
     def get_questions_for_level(self, level, count=5):
-        # We will bypass this specific function in the router logic and use DB directly
         pass
 
 __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
@@ -73,33 +72,29 @@ __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 # ==========================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Load Random Forest Detection Model
 MODEL_PATH = os.path.join(current_dir, "dyscalculia_rf_model.pkl")
 rf_model = None
 try:
     rf_model = joblib.load(MODEL_PATH)
-    print(f"Dyscalculia RF Model loaded successfully from: {MODEL_PATH}")
+    print(f"Dyscalculia RF Model loaded successfully.")
 except Exception as e:
     print(f"Warning: Could not load ML model at {MODEL_PATH}. Error: {e}")
 
-# Load Grade 3 Rule Engine
 RULE_ENGINE_G03_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
 rule_engine_g03 = None
 try:
     rule_engine_g03 = joblib.load(RULE_ENGINE_G03_PATH)
-    print(f"Grade 3 Rule Engine loaded successfully from: {RULE_ENGINE_G03_PATH}")
+    print(f"Grade 3 Rule Engine loaded successfully.")
 except Exception as e:
-    print(f"Warning: Could not load Grade 3 Rule Engine. Error: {e}")
+    print(f"Warning: Could not load Grade 3 Rule Engine.")
 
-# Load Grade 4 Rule Engine
 RULE_ENGINE_G04_PATH = os.path.join(current_dir, "learning_path_rule_engine_g04.pkl")
 rule_engine_g04 = None
 try:
     rule_engine_g04 = joblib.load(RULE_ENGINE_G04_PATH)
-    print(f"Grade 4 Rule Engine loaded successfully from: {RULE_ENGINE_G04_PATH}")
+    print(f"Grade 4 Rule Engine loaded successfully.")
 except Exception as e:
-    print(f"Warning: Could not load Grade 4 Rule Engine. Error: {e}")
-
+    print(f"Warning: Could not load Grade 4 Rule Engine.")
 
 # ==========================================
 # 3. DETECTION ROUTES
@@ -108,7 +103,6 @@ except Exception as e:
 async def submit_dyscalculia_result(result: DyscalculiaResult):
     try:
         risk_level_str = "Pending/Error"
-        
         if rf_model is not None:
             features = np.array([[
                 result.grade, result.task_number, result.accuracy,
@@ -124,7 +118,6 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         result_dict["created_at"] = datetime.utcnow()
         
         insert_result = db["dyscalculia_results"].insert_one(result_dict)
-        
         return {"ok": True, "id": str(insert_result.inserted_id), "risk_level": risk_level_str}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -150,50 +143,57 @@ async def get_user_dyscalculia_results(user_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 # ==========================================
 # 4. LEARNING PATH ROUTES
 # ==========================================
-@router.get("/dyscalculia/learning-state/{user_id}")
-async def get_learning_state(user_id: str):
+@router.get("/dyscalculia/learning-state/{user_id}/{grade}")
+async def get_learning_state(user_id: str, grade: int):
     try:
-        state = db["dyscalculia_learning_state"].find_one({"user_id": user_id})
+        state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            # --- NEW STRICT CHECK: BLOCK IF NO DETECTION ---
-            detection = db["dyscalculia_results"].find_one({"user_id": user_id}, sort=[("created_at", -1)])
+            detection = db["dyscalculia_results"].find_one({"user_id": user_id, "grade": grade}, sort=[("created_at", -1)])
             
             if not detection:
                 return {
                     "ok": False, 
                     "error": "not_detected", 
-                    "message": "Student must complete detection first."
+                    "message": f"Student must complete Grade {grade} detection first."
                 }
             
-            # If detection exists, set their adaptive starting level
             start_level = "easy"
-            if detection["risk_level"] == "No Dyscalculia": start_level = "hard"
-            elif detection["risk_level"] == "Mild Dyscalculia": start_level = "medium"
+            if detection.get("risk_level") == "No Dyscalculia": start_level = "hard"
+            elif detection.get("risk_level") == "Mild Dyscalculia": start_level = "medium"
                     
-            state = {"user_id": user_id, "current_level": start_level, "tasks_completed": 0}
+            state = {
+                "user_id": user_id, 
+                "grade": grade,
+                "current_level": start_level, 
+                "tasks_completed": 0
+            }
             db["dyscalculia_learning_state"].insert_one(state)
             
         return {"ok": True, "level": state["current_level"], "tasks_completed": state.get("tasks_completed", 0)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
     try:
+        # 1. Dynamically target the correct MongoDB collection based on the grade
+        collection_name = f"math_grade_{grade:02d}"
         grade_key = f"math_tasks_grade_{grade:02d}"
         level_key = level.lower()
         
-        doc = db["math_questions"].find_one({})
+        # 2. Fetch the document from the specific collection
+        doc = db[collection_name].find_one({})
+        
+        # 3. Validate the structure exists
         if not doc or grade_key not in doc or level_key not in doc[grade_key]:
             return {"ok": False, "questions": []}
             
         questions_pool = doc[grade_key][level_key]
+        
         if len(questions_pool) >= 5:
             selected_questions = random.sample(questions_pool, 5)
         else:
@@ -203,26 +203,30 @@ async def get_learning_questions(grade: int, level: str):
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
     try:
-        if rule_engine is None: raise HTTPException(status_code=500, detail="Rule Engine Model not loaded.")
+        if metrics.grade == 3: active_engine = rule_engine_g03
+        elif metrics.grade == 4: active_engine = rule_engine_g04
+        else: raise HTTPException(status_code=400, detail=f"Rule Engine not configured for Grade {metrics.grade}")
             
-        state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id})
+        if active_engine is None: raise HTTPException(status_code=500, detail="Rule Engine Model not loaded.")
+            
+        state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id, "grade": metrics.grade})
         current_level = state["current_level"] if state else "easy"
         
         metrics_dict = metrics.dict()
-        evaluation = rule_engine.evaluate_performance(current_level, metrics_dict)
+        evaluation = active_engine.evaluate_performance(current_level, metrics_dict)
         
         action = evaluation["action"]       
         next_level = evaluation["next_level"] 
         message = evaluation["message"]
-        new_tasks_completed = state.get("tasks_completed", 0) + 1
+        new_tasks_completed = (state.get("tasks_completed", 0) if state else 0) + 1
         
         db["dyscalculia_learning_state"].update_one(
-            {"user_id": metrics.user_id},
-            {"$set": {"current_level": next_level, "tasks_completed": new_tasks_completed}}
+            {"user_id": metrics.user_id, "grade": metrics.grade},
+            {"$set": {"current_level": next_level, "tasks_completed": new_tasks_completed}},
+            upsert=True
         )
         
         history_record = metrics_dict.copy()
@@ -235,8 +239,6 @@ async def submit_learning_task(metrics: LearningMetrics):
         return {"ok": True, "action": action, "next_level": next_level, "message": message, "tasks_completed": new_tasks_completed}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
 
 # ==========================================
 # 5. SPECIAL TASK & RESULTS ROUTES
@@ -266,11 +268,8 @@ async def submit_special_task(result: DyscalculiaResult):
         elif risk_level_str == "Mild Dyscalculia": start_level = "medium"
             
         db["dyscalculia_learning_state"].update_one(
-            {"user_id": result.user_id},
-            {"$set": {
-                "current_level": start_level, 
-                "tasks_completed": 0 
-            }},
+            {"user_id": result.user_id, "grade": result.grade},
+            {"$set": {"current_level": start_level, "tasks_completed": 0}},
             upsert=True
         )
         
@@ -299,10 +298,6 @@ async def get_learning_history(user_id: str):
             if "created_at" in h and h["created_at"]:
                 h["created_at"] = h["created_at"].isoformat()
                 
-        return {
-            "ok": True,
-            "special_result": special_result,
-            "history": history_list
-        }
+        return {"ok": True, "special_result": special_result, "history": history_list}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
