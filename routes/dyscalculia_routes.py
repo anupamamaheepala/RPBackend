@@ -63,12 +63,8 @@ class AdaptiveLearningPathEngine:
         }
         
     def get_questions_for_level(self, level, count=5):
-        level_key = level.lower()
-        all_grade_3 = self.question_bank.get("math_tasks_grade_03", {})
-        questions_pool = all_grade_3.get(level_key, [])
-        if len(questions_pool) < count:
-            return questions_pool
-        return random.sample(questions_pool, count)
+        # We will bypass this specific function in the router logic and use DB directly
+        pass
 
 __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 
@@ -77,6 +73,7 @@ __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 # ==========================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Load Random Forest Detection Model
 MODEL_PATH = os.path.join(current_dir, "dyscalculia_rf_model.pkl")
 rf_model = None
 try:
@@ -85,13 +82,23 @@ try:
 except Exception as e:
     print(f"Warning: Could not load ML model at {MODEL_PATH}. Error: {e}")
 
-RULE_ENGINE_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
-rule_engine = None
+# Load Grade 3 Rule Engine
+RULE_ENGINE_G03_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
+rule_engine_g03 = None
 try:
-    rule_engine = joblib.load(RULE_ENGINE_PATH)
-    print(f"Rule Engine loaded successfully from: {RULE_ENGINE_PATH}")
+    rule_engine_g03 = joblib.load(RULE_ENGINE_G03_PATH)
+    print(f"Grade 3 Rule Engine loaded successfully from: {RULE_ENGINE_G03_PATH}")
 except Exception as e:
-    print(f"Warning: Could not load Rule Engine at {RULE_ENGINE_PATH}. Error: {e}")
+    print(f"Warning: Could not load Grade 3 Rule Engine. Error: {e}")
+
+# Load Grade 4 Rule Engine
+RULE_ENGINE_G04_PATH = os.path.join(current_dir, "learning_path_rule_engine_g04.pkl")
+rule_engine_g04 = None
+try:
+    rule_engine_g04 = joblib.load(RULE_ENGINE_G04_PATH)
+    print(f"Grade 4 Rule Engine loaded successfully from: {RULE_ENGINE_G04_PATH}")
+except Exception as e:
+    print(f"Warning: Could not load Grade 4 Rule Engine. Error: {e}")
 
 
 # ==========================================
@@ -228,6 +235,7 @@ async def submit_learning_task(metrics: LearningMetrics):
         return {"ok": True, "action": action, "next_level": next_level, "message": message, "tasks_completed": new_tasks_completed}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ==========================================
