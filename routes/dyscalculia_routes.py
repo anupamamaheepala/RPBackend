@@ -177,35 +177,77 @@ async def get_learning_state(user_id: str, grade: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
     try:
-        # 1. Target the correct collection: e.g., "math_grade_03"
-        collection_name = f"math_grade_{grade:02d}"
-        
-        # 2. Get the level we want: "easy", "medium", or "hard"
         level_key = level.lower()
         
-        # 3. Fetch the document
-        doc = db[collection_name].find_one({})
+        # 1. FOOLPROOF COLLECTION NAME MATCHER
+        possible_collections = [
+            f"math_grade_{grade:02d}",  # "math_grade_03"
+            f"math_grade_{grade}",      # "math_grade_3"
+            f"grade_{grade:02d}",       # "grade_03"
+            f"grade_{grade}",           # "grade_3"
+            f"math_tasks_grade_{grade:02d}"
+        ]
         
-        # 4. **CRITICAL FIX**: Check if "easy"/"medium"/"hard" is directly in the document
-        if not doc or level_key not in doc:
-            print(f"Backend Warning: Could not find '{level_key}' inside collection '{collection_name}'")
+        target_col = None
+        existing_cols = db.list_collection_names()
+        for col in possible_collections:
+            if col in existing_cols:
+                target_col = col
+                break
+                
+        # Fallback to the default name if checking fails
+        if not target_col:
+            target_col = f"math_grade_{grade:02d}"
+
+        # 2. FETCH DOCUMENT
+        doc = db[target_col].find_one({})
+        
+        if not doc:
+            print(f"Backend Warning: Collection '{target_col}' is completely empty.")
             return {"ok": False, "questions": []}
             
-        # 5. Extract the questions directly
-        questions_pool = doc[level_key]
+        # 3. RECURSIVE SEARCH: Auto-find the array regardless of JSON structure!
+        def find_level_array(data, target_level):
+            if isinstance(data, dict):
+                # If we found the key and it holds a list of questions, return it!
+                if target_level in data and isinstance(data[target_level], list):
+                    return data[target_level]
+                # Otherwise, keep searching deeper inside dictionaries
+                for v in data.values():
+                    res = find_level_array(v, target_level)
+                    if res is not None:
+                        return res
+            elif isinstance(data, list):
+                # Search through lists if needed
+                for item in data:
+                    res = find_level_array(item, target_level)
+                    if res is not None:
+                        return res
+            return None
+            
+        # Run the search
+        questions_pool = find_level_array(doc, level_key)
         
+        if not questions_pool:
+            print(f"Backend Warning: Could not find any array named '{level_key}' inside '{target_col}'")
+            return {"ok": False, "questions": []}
+            
+        # 4. RANDOMIZE AND RETURN
         if len(questions_pool) >= 5:
             selected_questions = random.sample(questions_pool, 5)
         else:
             selected_questions = questions_pool
             
         return {"ok": True, "questions": selected_questions}
+        
     except Exception as e:
          print(f"Error in get_learning_questions: {e}")
          raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
