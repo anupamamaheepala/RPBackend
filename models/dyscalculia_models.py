@@ -19,7 +19,7 @@ class DyscalculiaResult(BaseModel):
 
 class LearningMetrics(BaseModel):
     user_id: str
-    grade: int
+    grade: int          
     accuracy: int
     wrong_count: int
     hesitation_time_avg: float
