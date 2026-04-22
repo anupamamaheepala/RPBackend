@@ -180,19 +180,22 @@ async def get_learning_state(user_id: str, grade: int):
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
     try:
-        # 1. Dynamically target the correct MongoDB collection based on the grade
+        # 1. Target the correct collection: e.g., "math_grade_03"
         collection_name = f"math_grade_{grade:02d}"
-        grade_key = f"math_tasks_grade_{grade:02d}"
+        
+        # 2. Get the level we want: "easy", "medium", or "hard"
         level_key = level.lower()
         
-        # 2. Fetch the document from the specific collection
+        # 3. Fetch the document
         doc = db[collection_name].find_one({})
         
-        # 3. Validate the structure exists
-        if not doc or grade_key not in doc or level_key not in doc[grade_key]:
+        # 4. **CRITICAL FIX**: Check if "easy"/"medium"/"hard" is directly in the document
+        if not doc or level_key not in doc:
+            print(f"Backend Warning: Could not find '{level_key}' inside collection '{collection_name}'")
             return {"ok": False, "questions": []}
             
-        questions_pool = doc[grade_key][level_key]
+        # 5. Extract the questions directly
+        questions_pool = doc[level_key]
         
         if len(questions_pool) >= 5:
             selected_questions = random.sample(questions_pool, 5)
@@ -201,6 +204,7 @@ async def get_learning_questions(grade: int, level: str):
             
         return {"ok": True, "questions": selected_questions}
     except Exception as e:
+         print(f"Error in get_learning_questions: {e}")
          raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/dyscalculia/submit-learning-task")
