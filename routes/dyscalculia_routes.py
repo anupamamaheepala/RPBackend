@@ -72,7 +72,6 @@ __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 # ==========================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Load Detection Model
 MODEL_PATH = os.path.join(current_dir, "dyscalculia_rf_model.pkl")
 rf_model = None
 try:
@@ -81,23 +80,21 @@ try:
 except Exception as e:
     print(f"Warning: Could not load ML model at {MODEL_PATH}. Error: {e}")
 
-# Load Grade 3 Model
 RULE_ENGINE_G03_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
 rule_engine_g03 = None
 try:
     rule_engine_g03 = joblib.load(RULE_ENGINE_G03_PATH)
     print(f"Grade 3 Rule Engine loaded successfully.")
 except Exception as e:
-    print(f"Warning: Could not load Grade 3 Rule Engine. Error: {e}")
+    print(f"Warning: Could not load Grade 3 Rule Engine.")
 
-# Load Grade 4 Model
 RULE_ENGINE_G04_PATH = os.path.join(current_dir, "learning_path_rule_engine_g04.pkl")
 rule_engine_g04 = None
 try:
     rule_engine_g04 = joblib.load(RULE_ENGINE_G04_PATH)
     print(f"Grade 4 Rule Engine loaded successfully.")
 except Exception as e:
-    print(f"Warning: Could not load Grade 4 Rule Engine. Error: {e}")
+    print(f"Warning: Could not load Grade 4 Rule Engine.")
 
 
 # ==========================================
@@ -153,18 +150,15 @@ async def get_user_dyscalculia_results(user_id: str):
 # ==========================================
 # 4. LEARNING PATH ROUTES
 # ==========================================
-# FIX 1: ADDED {grade} TO THE URL
+# FIX 1: URL now matches Flutter App exactly
 @router.get("/dyscalculia/learning-state/{user_id}/{grade}")
 async def get_learning_state(user_id: str, grade: int):
     try:
-        # Track state by user AND grade
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            # Look for detection results specifically for this grade
             detection = db["dyscalculia_results"].find_one({"user_id": user_id, "grade": grade}, sort=[("created_at", -1)])
             
-            # If no detection, block the user
             if not detection:
                 return {"ok": False, "error": "not_detected"}
                 
@@ -180,31 +174,39 @@ async def get_learning_state(user_id: str, grade: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# FIX 2: Dynamic Database Targeting
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
     try:
-        grade_key = f"math_tasks_grade_{grade:02d}"
         level_key = level.lower()
-        questions_pool = []
         
-        # Strategy A: Check separate collections (e.g., math_grade_03)
-        col_name = f"math_grade_{grade:02d}"
-        if col_name in db.list_collection_names():
-            doc = db[col_name].find_one({})
-            if doc:
-                if grade_key in doc and level_key in doc[grade_key]:
-                    questions_pool = doc[grade_key][level_key]
-                elif level_key in doc:
-                    questions_pool = doc[level_key]
-                    
-        # Strategy B: Fallback to your original math_questions collection
+        # Look for the exact collection based on the grade requested
+        target_col = f"math_grade_{grade:02d}"
+        
+        doc = db[target_col].find_one({})
+        
+        if not doc:
+            print(f"Backend Warning: Collection '{target_col}' is empty or does not exist.")
+            return {"ok": False, "questions": []}
+            
+        # Recursive auto-search to find the questions array, bypassing any MongoDB JSON wrappers
+        def find_level_array(data, target_level):
+            if isinstance(data, dict):
+                if target_level in data and isinstance(data[target_level], list):
+                    return data[target_level]
+                for v in data.values():
+                    res = find_level_array(v, target_level)
+                    if res is not None: return res
+            elif isinstance(data, list):
+                for item in data:
+                    res = find_level_array(item, target_level)
+                    if res is not None: return res
+            return None
+            
+        questions_pool = find_level_array(doc, level_key)
+        
         if not questions_pool:
-            # Uses $exists so it doesn't get confused if Grade 3 and Grade 4 are in separate documents
-            doc = db["math_questions"].find_one({grade_key: {"$exists": True}})
-            if doc and grade_key in doc and level_key in doc[grade_key]:
-                questions_pool = doc[grade_key][level_key]
-                
-        if not questions_pool:
+            print(f"Backend Warning: Could not find '{level_key}' inside '{target_col}'")
             return {"ok": False, "questions": []}
             
         if len(questions_pool) >= 5:
@@ -213,14 +215,15 @@ async def get_learning_questions(grade: int, level: str):
             selected_questions = questions_pool
             
         return {"ok": True, "questions": selected_questions}
+        
     except Exception as e:
+         print(f"Error in get_learning_questions: {e}")
          raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
     try:
-        # Dynamically pick the right Rule Engine
         active_engine = None
         if metrics.grade == 3: active_engine = rule_engine_g03
         elif metrics.grade == 4: active_engine = rule_engine_g04
@@ -284,7 +287,7 @@ async def submit_special_task(result: DyscalculiaResult):
         elif risk_level_str == "Mild Dyscalculia": start_level = "medium"
             
         db["dyscalculia_learning_state"].update_one(
-            {"user_id": result.user_id, "grade": result.grade}, # FIX: Reset state for specific grade
+            {"user_id": result.user_id, "grade": result.grade},
             {"$set": {
                 "current_level": start_level, 
                 "tasks_completed": 0 
