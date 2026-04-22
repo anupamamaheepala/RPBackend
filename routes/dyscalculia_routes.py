@@ -73,7 +73,7 @@ class AdaptiveLearningPathEngine:
 __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 
 # ==========================================
-# 2. LOAD AI & RULE MODELS 
+# 2. LOAD AI & RULE MODELS
 # ==========================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -117,8 +117,9 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
                 result.retries, result.backtracks, result.skipped_items,
                 result.wrong_count, result.completion_time
             ]])
-            prediction = rf_model.predict(features)[0]
-            risk_level_str = str(prediction)
+            raw_prediction = rf_model.predict(features)[0]
+            # Strip away ML array formatting to ensure clean string
+            risk_level_str = str(raw_prediction).replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
 
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
@@ -153,27 +154,33 @@ async def get_user_dyscalculia_results(user_id: str):
 
 
 # ==========================================
-# 4. LEARNING PATH ROUTES 
+# 4. LEARNING PATH ROUTES
 # ==========================================
 @router.get("/dyscalculia/learning-state/{user_id}/{grade}")
 async def get_learning_state(user_id: str, grade: int):
     try:
+        # --- FIX 1: STRICT GATEKEEPER ---
+        # Absolutely enforce that they have a detection record for this grade first
+        detection = db["dyscalculia_results"].find_one(
+            {"user_id": user_id, "grade": grade}, 
+            sort=[("created_at", -1)]
+        )
+        
+        if not detection:
+            # Block them immediately if no detection is found for this specific grade
+            return {"ok": False, "message": f"Must complete Grade {grade} detection first."}
+
+        # If they pass the gatekeeper, fetch or create their learning state
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            # Look up detection history specific to THIS grade
-            detection = db["dyscalculia_results"].find_one({"user_id": user_id, "grade": grade}, sort=[("created_at", -1)])
-            
-            # --- LOGIC 1 & 2 FIX: Enforce Detection Prerequisite ---
-            # If no detection exists for this specific grade, block access to the learning path.
-            if not detection:
-                return {"ok": False, "message": f"Must complete Grade {grade} detection first."}
-            
-            # --- LOGIC 3 FIX: Initial Difficulty Mapping ---
+            risk_level_str = detection.get("risk_level", "")
             start_level = "easy" # Default for Severe
-            if detection["risk_level"] == "No Dyscalculia": 
+            
+            # --- FIX 2: SAFE STRING MATCHING ---
+            if "No Dyscalculia" in risk_level_str: 
                 start_level = "hard"
-            elif detection["risk_level"] == "Mild Dyscalculia": 
+            elif "Mild" in risk_level_str: 
                 start_level = "medium"
                     
             state = {"user_id": user_id, "grade": grade, "current_level": start_level, "tasks_completed": 0}
@@ -264,20 +271,21 @@ async def submit_special_task(result: DyscalculiaResult):
                 result.retries, result.backtracks, result.skipped_items,
                 result.wrong_count, result.completion_time
             ]])
-            prediction = rf_model.predict(features)[0]
-            risk_level_str = str(prediction)
+            raw_prediction = rf_model.predict(features)[0]
+            # Strip away ML array formatting
+            risk_level_str = str(raw_prediction).replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
 
-        # 1. Save Special Result
+        # Save Special Result
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
         result_dict["created_at"] = datetime.utcnow()
         db["dyscalculia_special_results"].insert_one(result_dict)
         
-        # --- LOGIC 4 FIX: Reset Difficulty based on Special Task Result ---
+        # --- FIX 3: SAFE STRING MATCHING FOR SPECIAL RESET ---
         start_level = "easy" # Default for Severe
-        if risk_level_str == "No Dyscalculia": 
-            start_level = "hard" # Keep giving them hard tasks
-        elif risk_level_str == "Mild Dyscalculia": 
+        if "No Dyscalculia" in risk_level_str: 
+            start_level = "hard" 
+        elif "Mild" in risk_level_str: 
             start_level = "medium"
             
         db["dyscalculia_learning_state"].update_one(
