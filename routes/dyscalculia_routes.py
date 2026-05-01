@@ -118,7 +118,6 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
                 result.wrong_count, result.completion_time
             ]])
             raw_prediction = rf_model.predict(features)[0]
-            # Strip away ML array formatting to ensure clean string
             risk_level_str = str(raw_prediction).replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
 
         result_dict = result.dict()
@@ -126,6 +125,16 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         result_dict["created_at"] = datetime.utcnow()
         
         insert_result = db["dyscalculia_results"].insert_one(result_dict)
+        
+        # =====================================================================
+        # BUG FIX 1: After a new detection result is saved, always reset the
+        # learning state for this user+grade so it re-initialises from the
+        # latest detection result (prevents stale "medium" state from a
+        # previous test session being reused for a new account or re-test).
+        # =====================================================================
+        db["dyscalculia_learning_state"].delete_one(
+            {"user_id": result.user_id, "grade": result.grade}
+        )
         
         return {"ok": True, "id": str(insert_result.inserted_id), "risk_level": risk_level_str}
     except Exception as e:
@@ -159,34 +168,48 @@ async def get_user_dyscalculia_results(user_id: str):
 @router.get("/dyscalculia/learning-state/{user_id}/{grade}")
 async def get_learning_state(user_id: str, grade: int):
     try:
-        # --- FIX 1: STRICT GATEKEEPER ---
-        # Absolutely enforce that they have a detection record for this grade first
+        # Gatekeeper: student must have a detection record for this grade
         detection = db["dyscalculia_results"].find_one(
             {"user_id": user_id, "grade": grade}, 
             sort=[("created_at", -1)]
         )
         
         if not detection:
-            # Block them immediately if no detection is found for this specific grade
             return {"ok": False, "message": f"Must complete Grade {grade} detection first."}
 
-        # If they pass the gatekeeper, fetch or create their learning state
+        # =====================================================================
+        # BUG FIX 2: Always derive the correct start_level from the latest
+        # detection result before checking for an existing state.
+        # This ensures that if no state exists yet, we build it correctly.
+        # =====================================================================
+        risk_level_str = detection.get("risk_level", "")
+        
+        # Determine the correct starting level from detection result
+        if "No Dyscalculia" in risk_level_str:
+            correct_start_level = "hard"
+        elif "Mild" in risk_level_str:
+            correct_start_level = "medium"
+        else:
+            # Severe Dyscalculia or unknown → always start easy
+            correct_start_level = "easy"
+
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            risk_level_str = detection.get("risk_level", "")
-            start_level = "easy" # Default for Severe
-            
-            # --- FIX 2: SAFE STRING MATCHING ---
-            if "No Dyscalculia" in risk_level_str: 
-                start_level = "hard"
-            elif "Mild" in risk_level_str: 
-                start_level = "medium"
-                    
-            state = {"user_id": user_id, "grade": grade, "current_level": start_level, "tasks_completed": 0}
+            # No state yet — create fresh one based on detection result
+            state = {
+                "user_id": user_id,
+                "grade": grade,
+                "current_level": correct_start_level,
+                "tasks_completed": 0
+            }
             db["dyscalculia_learning_state"].insert_one(state)
             
-        return {"ok": True, "level": state["current_level"], "tasks_completed": state.get("tasks_completed", 0)}
+        return {
+            "ok": True,
+            "level": state["current_level"],
+            "tasks_completed": state.get("tasks_completed", 0)
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -251,7 +274,13 @@ async def submit_learning_task(metrics: LearningMetrics):
         history_record["created_at"] = datetime.utcnow()
         db["dyscalculia_learning_history"].insert_one(history_record)
         
-        return {"ok": True, "action": action, "next_level": next_level, "message": message, "tasks_completed": new_tasks_completed}
+        return {
+            "ok": True,
+            "action": action,
+            "next_level": next_level,
+            "message": message,
+            "tasks_completed": new_tasks_completed
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -272,7 +301,6 @@ async def submit_special_task(result: DyscalculiaResult):
                 result.wrong_count, result.completion_time
             ]])
             raw_prediction = rf_model.predict(features)[0]
-            # Strip away ML array formatting
             risk_level_str = str(raw_prediction).replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
 
         # Save Special Result
@@ -281,23 +309,31 @@ async def submit_special_task(result: DyscalculiaResult):
         result_dict["created_at"] = datetime.utcnow()
         db["dyscalculia_special_results"].insert_one(result_dict)
         
-        # --- FIX 3: SAFE STRING MATCHING FOR SPECIAL RESET ---
-        start_level = "easy" # Default for Severe
+        # Determine next starting level based on special task result
         if "No Dyscalculia" in risk_level_str: 
             start_level = "hard" 
         elif "Mild" in risk_level_str: 
             start_level = "medium"
-            
+        else:
+            # Still Severe → restart from easy
+            start_level = "easy"
+
+        # =====================================================================
+        # BUG FIX 3: Reset tasks_completed to 0 so the Flutter % 5 check
+        # does NOT immediately re-trigger the special task dialog on the
+        # very next _initLearningPath() call after returning from special task.
+        # The new level from this special task result is correctly applied.
+        # =====================================================================
         db["dyscalculia_learning_state"].update_one(
             {"user_id": result.user_id, "grade": result.grade},
             {"$set": {
                 "current_level": start_level, 
-                "tasks_completed": 0 
+                "tasks_completed": 0
             }},
             upsert=True
         )
         
-        return {"ok": True, "risk_level": risk_level_str}
+        return {"ok": True, "risk_level": risk_level_str, "next_level": start_level}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
