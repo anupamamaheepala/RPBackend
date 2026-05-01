@@ -61,14 +61,6 @@ class AdaptiveLearningPathEngine:
             "next_level": next_level,
             "message": message
         }
-        
-    def get_questions_for_level(self, level, count=5):
-        level_key = level.lower()
-        all_grade_3 = self.question_bank.get("math_tasks_grade_03", {})
-        questions_pool = all_grade_3.get(level_key, [])
-        if len(questions_pool) < count:
-            return questions_pool
-        return random.sample(questions_pool, count)
 
 __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 
@@ -85,56 +77,36 @@ try:
 except Exception as e:
     print(f"Warning: Could not load ML model at {MODEL_PATH}. Error: {e}")
 
-RULE_ENGINE_G03_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
-rule_engine_g03 = None
-try:
-    rule_engine_g03 = joblib.load(RULE_ENGINE_G03_PATH)
-    print(f"Grade 3 Rule Engine loaded successfully")
-except Exception as e:
-    print(f"Warning: Could not load G03 Rule Engine. Error: {e}")
+# Load all rule engines
+def load_rule_engine(path, grade_name):
+    try:
+        engine = joblib.load(path)
+        print(f"Grade {grade_name} Rule Engine loaded successfully")
+        return engine
+    except Exception as e:
+        print(f"Warning: Could not load G{grade_name} Rule Engine. Error: {e}")
+        return None
 
-RULE_ENGINE_G04_PATH = os.path.join(current_dir, "learning_path_rule_engine_g04.pkl")
-rule_engine_g04 = None
-try:
-    rule_engine_g04 = joblib.load(RULE_ENGINE_G04_PATH)
-    print(f"Grade 4 Rule Engine loaded successfully")
-except Exception as e:
-    print(f"Warning: Could not load G04 Rule Engine. Error: {e}")
-
-# NEW: Load Grade 5 Rule Engine
-RULE_ENGINE_G05_PATH = os.path.join(current_dir, "learning_path_rule_engine_g05.pkl")
-rule_engine_g05 = None
-try:
-    rule_engine_g05 = joblib.load(RULE_ENGINE_G05_PATH)
-    print(f"Grade 5 Rule Engine loaded successfully")
-except Exception as e:
-    print(f"Warning: Could not load G05 Rule Engine. Error: {e}")
-
+rule_engine_g03 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine.pkl"), "3")
+rule_engine_g04 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g04.pkl"), "4")
+rule_engine_g05 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g05.pkl"), "5")
+rule_engine_g06 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g06.pkl"), "6")
+rule_engine_g07 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g07.pkl"), "7")
 
 # ==========================================
 # 3. HELPER FUNCTIONS
 # ==========================================
 def clean_risk_level(raw_prediction) -> str:
-    """
-    Clean the RF model prediction output to a standardized risk level string.
-    Handles numpy arrays, lists, and various string formats.
-    """
     if raw_prediction is None:
         return "Unknown"
     
-    # Convert to string and clean
     risk_str = str(raw_prediction)
-    
-    # Remove common wrappers
     risk_str = risk_str.strip()
     risk_str = risk_str.replace("[", "").replace("]", "")
     risk_str = risk_str.replace("'", "").replace('"', "")
     risk_str = risk_str.strip()
-    
-    # Also handle numpy array specific formatting
     risk_str = risk_str.replace("\n", "").replace("\r", "")
     
-    # Standardize the risk level
     risk_str_lower = risk_str.lower()
     if "no dyscalculia" in risk_str_lower or "no" == risk_str_lower.strip():
         return "No Dyscalculia"
@@ -143,20 +115,11 @@ def clean_risk_level(raw_prediction) -> str:
     elif "mild" in risk_str_lower:
         return "Mild Dyscalculia"
     else:
-        # If we can't determine, return the cleaned string
         print(f"WARNING: Unknown risk level raw output: {raw_prediction} -> cleaned: {risk_str}")
         return risk_str if risk_str else "Unknown"
 
 
 def determine_start_level(risk_level_str: str) -> str:
-    """
-    Determine the starting level for learning path based on detection result.
-    LOGIC:
-    - Severe Dyscalculia → easy
-    - Mild Dyscalculia → medium
-    - No Dyscalculia → hard (still need to learn/practice)
-    - Unknown → easy (safest default)
-    """
     risk_lower = risk_level_str.lower()
     
     if "severe" in risk_lower:
@@ -166,9 +129,22 @@ def determine_start_level(risk_level_str: str) -> str:
     elif "no dyscalculia" in risk_lower or "no" == risk_lower.strip():
         return "hard"
     else:
-        # Default to easy for safety
         print(f"WARNING: Unknown risk level '{risk_level_str}', defaulting to 'easy'")
         return "easy"
+
+
+def get_rule_engine_for_grade(grade: int):
+    engines = {
+        3: rule_engine_g03,
+        4: rule_engine_g04,
+        5: rule_engine_g05,
+        6: rule_engine_g06,
+        7: rule_engine_g07,
+    }
+    engine = engines.get(grade)
+    if engine is None:
+        raise HTTPException(status_code=400, detail=f"No learning path rule engine available for grade {grade}")
+    return engine
 
 
 # ==========================================
@@ -198,8 +174,6 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         
         insert_result = db["dyscalculia_results"].insert_one(result_dict)
         
-        # IMPORTANT: After new detection, DELETE old learning state
-        # This forces re-initialization based on the new detection result
         delete_result = db["dyscalculia_learning_state"].delete_one(
             {"user_id": result.user_id, "grade": result.grade}
         )
@@ -238,19 +212,7 @@ async def get_user_dyscalculia_results(user_id: str):
 # ==========================================
 @router.get("/dyscalculia/learning-state/{user_id}/{grade}")
 async def get_learning_state(user_id: str, grade: int):
-    """
-    Get or create the learning state for a user+grade.
-    
-    IMPORTANT LOGIC:
-    1. Student MUST complete detection for this grade first (gatekeeper)
-    2. Detection result determines starting level:
-       - Severe Dyscalculia → easy
-       - Mild Dyscalculia → medium
-       - No Dyscalculia → hard (student should still practice)
-    3. If learning state already exists, return it (preserves ongoing progress)
-    """
     try:
-        # Gatekeeper: student must have at least one detection record for this grade
         detection = db["dyscalculia_results"].find_one(
             {"user_id": user_id, "grade": grade}, 
             sort=[("created_at", -1)]
@@ -260,19 +222,15 @@ async def get_learning_state(user_id: str, grade: int):
             print(f"Access denied: User {user_id} has no detection result for grade {grade}")
             return {"ok": False, "message": f"Must complete Grade {grade} detection first."}
 
-        # Get the risk level from the latest detection
         risk_level_str = detection.get("risk_level", "Unknown")
         print(f"Learning state request - User: {user_id}, Grade: {grade}, Detection Risk Level: '{risk_level_str}'")
         
-        # Determine the correct starting level based on detection
         correct_start_level = determine_start_level(risk_level_str)
         print(f"Determined start level: {correct_start_level}")
 
-        # Check if learning state already exists
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            # No state exists — create a fresh one based on detection result
             state = {
                 "user_id": user_id,
                 "grade": grade,
@@ -319,15 +277,7 @@ async def get_learning_questions(grade: int, level: str):
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
     try:
-        # Select the appropriate rule engine based on grade
-        if metrics.grade == 3:
-            active_rule_engine = rule_engine_g03
-        elif metrics.grade == 4:
-            active_rule_engine = rule_engine_g04
-        elif metrics.grade == 5:
-            active_rule_engine = rule_engine_g05
-        else:
-            raise HTTPException(status_code=400, detail=f"No learning path rule engine available for grade {metrics.grade}")
+        active_rule_engine = get_rule_engine_for_grade(metrics.grade)
 
         if active_rule_engine is None: 
             raise HTTPException(status_code=500, detail=f"Rule Engine Model for grade {metrics.grade} not loaded.")
@@ -395,16 +345,13 @@ async def submit_special_task(result: DyscalculiaResult):
         else:
             print("WARNING: RF Model not loaded for special task")
 
-        # Save Special Result
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
         result_dict["created_at"] = datetime.utcnow()
         db["dyscalculia_special_results"].insert_one(result_dict)
         
-        # Determine next starting level based on special task result
         start_level = determine_start_level(risk_level_str)
         
-        # Reset tasks_completed to 0 so the special task dialog won't re-trigger
         db["dyscalculia_learning_state"].update_one(
             {"user_id": result.user_id, "grade": result.grade},
             {"$set": {
