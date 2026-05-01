@@ -103,12 +103,72 @@ except Exception as e:
 
 
 # ==========================================
-# 3. DETECTION ROUTES
+# 3. HELPER FUNCTIONS
+# ==========================================
+def clean_risk_level(raw_prediction) -> str:
+    """
+    Clean the RF model prediction output to a standardized risk level string.
+    Handles numpy arrays, lists, and various string formats.
+    """
+    if raw_prediction is None:
+        return "Unknown"
+    
+    # Convert to string and clean
+    risk_str = str(raw_prediction)
+    
+    # Remove common wrappers
+    risk_str = risk_str.strip()
+    risk_str = risk_str.replace("[", "").replace("]", "")
+    risk_str = risk_str.replace("'", "").replace('"', "")
+    risk_str = risk_str.strip()
+    
+    # Also handle numpy array specific formatting
+    risk_str = risk_str.replace("\n", "").replace("\r", "")
+    
+    # Standardize the risk level
+    risk_str_lower = risk_str.lower()
+    if "no dyscalculia" in risk_str_lower or "no" == risk_str_lower.strip():
+        return "No Dyscalculia"
+    elif "severe" in risk_str_lower:
+        return "Severe Dyscalculia"
+    elif "mild" in risk_str_lower:
+        return "Mild Dyscalculia"
+    else:
+        # If we can't determine, return the cleaned string
+        print(f"WARNING: Unknown risk level raw output: {raw_prediction} -> cleaned: {risk_str}")
+        return risk_str if risk_str else "Unknown"
+
+
+def determine_start_level(risk_level_str: str) -> str:
+    """
+    Determine the starting level for learning path based on detection result.
+    LOGIC:
+    - Severe Dyscalculia → easy
+    - Mild Dyscalculia → medium
+    - No Dyscalculia → hard (still need to learn/practice)
+    - Unknown → easy (safest default)
+    """
+    risk_lower = risk_level_str.lower()
+    
+    if "severe" in risk_lower:
+        return "easy"
+    elif "mild" in risk_lower:
+        return "medium"
+    elif "no dyscalculia" in risk_lower or "no" == risk_lower.strip():
+        return "hard"
+    else:
+        # Default to easy for safety
+        print(f"WARNING: Unknown risk level '{risk_level_str}', defaulting to 'easy'")
+        return "easy"
+
+
+# ==========================================
+# 4. DETECTION ROUTES
 # ==========================================
 @router.post("/dyscalculia/submit-result")
 async def submit_dyscalculia_result(result: DyscalculiaResult):
     try:
-        risk_level_str = "Pending/Error"
+        risk_level_str = "Unknown"
         
         if rf_model is not None:
             features = np.array([[
@@ -118,7 +178,10 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
                 result.wrong_count, result.completion_time
             ]])
             raw_prediction = rf_model.predict(features)[0]
-            risk_level_str = str(raw_prediction).replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
+            risk_level_str = clean_risk_level(raw_prediction)
+            print(f"Detection submission - Grade {result.grade} Task {result.task_number}: {risk_level_str}")
+        else:
+            print("WARNING: RF Model not loaded, using default risk level")
 
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
@@ -126,19 +189,18 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         
         insert_result = db["dyscalculia_results"].insert_one(result_dict)
         
-        # =====================================================================
-        # BUG FIX 1: After a new detection result is saved, always reset the
-        # learning state for this user+grade so it re-initialises from the
-        # latest detection result (prevents stale "medium" state from a
-        # previous test session being reused for a new account or re-test).
-        # =====================================================================
-        db["dyscalculia_learning_state"].delete_one(
+        # IMPORTANT: After new detection, DELETE old learning state
+        # This forces re-initialization based on the new detection result
+        delete_result = db["dyscalculia_learning_state"].delete_one(
             {"user_id": result.user_id, "grade": result.grade}
         )
+        print(f"Deleted learning state for user {result.user_id} grade {result.grade}: deleted={delete_result.deleted_count}")
         
         return {"ok": True, "id": str(insert_result.inserted_id), "risk_level": risk_level_str}
     except Exception as e:
+        print(f"ERROR in submit-result: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/dyscalculia/results/{user_id}")
 async def get_user_dyscalculia_results(user_id: str):
@@ -163,40 +225,45 @@ async def get_user_dyscalculia_results(user_id: str):
 
 
 # ==========================================
-# 4. LEARNING PATH ROUTES
+# 5. LEARNING PATH ROUTES
 # ==========================================
 @router.get("/dyscalculia/learning-state/{user_id}/{grade}")
 async def get_learning_state(user_id: str, grade: int):
+    """
+    Get or create the learning state for a user+grade.
+    
+    IMPORTANT LOGIC:
+    1. Student MUST complete detection for this grade first (gatekeeper)
+    2. Detection result determines starting level:
+       - Severe Dyscalculia → easy
+       - Mild Dyscalculia → medium
+       - No Dyscalculia → hard (student should still practice)
+    3. If learning state already exists, return it (preserves ongoing progress)
+    """
     try:
-        # Gatekeeper: student must have a detection record for this grade
+        # Gatekeeper: student must have at least one detection record for this grade
         detection = db["dyscalculia_results"].find_one(
             {"user_id": user_id, "grade": grade}, 
             sort=[("created_at", -1)]
         )
         
         if not detection:
+            print(f"Access denied: User {user_id} has no detection result for grade {grade}")
             return {"ok": False, "message": f"Must complete Grade {grade} detection first."}
 
-        # =====================================================================
-        # BUG FIX 2: Always derive the correct start_level from the latest
-        # detection result before checking for an existing state.
-        # This ensures that if no state exists yet, we build it correctly.
-        # =====================================================================
-        risk_level_str = detection.get("risk_level", "")
+        # Get the risk level from the latest detection
+        risk_level_str = detection.get("risk_level", "Unknown")
+        print(f"Learning state request - User: {user_id}, Grade: {grade}, Detection Risk Level: '{risk_level_str}'")
         
-        # Determine the correct starting level from detection result
-        if "No Dyscalculia" in risk_level_str:
-            correct_start_level = "hard"
-        elif "Mild" in risk_level_str:
-            correct_start_level = "medium"
-        else:
-            # Severe Dyscalculia or unknown → always start easy
-            correct_start_level = "easy"
+        # Determine the correct starting level based on detection
+        correct_start_level = determine_start_level(risk_level_str)
+        print(f"Determined start level: {correct_start_level}")
 
+        # Check if learning state already exists
         state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            # No state yet — create fresh one based on detection result
+            # No state exists — create a fresh one based on detection result
             state = {
                 "user_id": user_id,
                 "grade": grade,
@@ -204,6 +271,9 @@ async def get_learning_state(user_id: str, grade: int):
                 "tasks_completed": 0
             }
             db["dyscalculia_learning_state"].insert_one(state)
+            print(f"Created new learning state: level={correct_start_level}, tasks_completed=0")
+        else:
+            print(f"Found existing learning state: level={state['current_level']}, tasks_completed={state.get('tasks_completed', 0)}")
             
         return {
             "ok": True,
@@ -211,6 +281,7 @@ async def get_learning_state(user_id: str, grade: int):
             "tasks_completed": state.get("tasks_completed", 0)
         }
     except Exception as e:
+        print(f"ERROR in learning-state: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -252,6 +323,9 @@ async def submit_learning_task(metrics: LearningMetrics):
         state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id, "grade": metrics.grade})
         current_level = state["current_level"] if state else "easy"
         
+        print(f"Learning task submission - User: {metrics.user_id}, Grade: {metrics.grade}, Current Level: {current_level}")
+        print(f"Metrics: accuracy={metrics.accuracy}, retries={metrics.retries}, wrongs={metrics.wrong_count}, hesitation={metrics.hesitation_time_avg:.2f}s")
+        
         metrics_dict = metrics.dict()
         
         evaluation = active_rule_engine.evaluate_performance(current_level, metrics_dict)
@@ -260,6 +334,8 @@ async def submit_learning_task(metrics: LearningMetrics):
         next_level = evaluation["next_level"] 
         message = evaluation["message"]
         new_tasks_completed = state.get("tasks_completed", 0) + 1
+        
+        print(f"Evaluation: action={action}, next_level={next_level}, tasks_completed={new_tasks_completed}")
         
         db["dyscalculia_learning_state"].update_one(
             {"user_id": metrics.user_id, "grade": metrics.grade},
@@ -282,16 +358,17 @@ async def submit_learning_task(metrics: LearningMetrics):
             "tasks_completed": new_tasks_completed
         }
     except Exception as e:
+        print(f"ERROR in submit-learning-task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
-# 5. SPECIAL TASK & RESULTS ROUTES
+# 6. SPECIAL TASK & RESULTS ROUTES
 # ==========================================
 @router.post("/dyscalculia/submit-special-task")
 async def submit_special_task(result: DyscalculiaResult):
     try:
-        risk_level_str = "Pending/Error"
+        risk_level_str = "Unknown"
         
         if rf_model is not None:
             features = np.array([[
@@ -301,7 +378,10 @@ async def submit_special_task(result: DyscalculiaResult):
                 result.wrong_count, result.completion_time
             ]])
             raw_prediction = rf_model.predict(features)[0]
-            risk_level_str = str(raw_prediction).replace("[", "").replace("]", "").replace("'", "").replace('"', '').strip()
+            risk_level_str = clean_risk_level(raw_prediction)
+            print(f"Special task submission - Grade {result.grade}: {risk_level_str}")
+        else:
+            print("WARNING: RF Model not loaded for special task")
 
         # Save Special Result
         result_dict = result.dict()
@@ -310,20 +390,10 @@ async def submit_special_task(result: DyscalculiaResult):
         db["dyscalculia_special_results"].insert_one(result_dict)
         
         # Determine next starting level based on special task result
-        if "No Dyscalculia" in risk_level_str: 
-            start_level = "hard" 
-        elif "Mild" in risk_level_str: 
-            start_level = "medium"
-        else:
-            # Still Severe → restart from easy
-            start_level = "easy"
-
-        # =====================================================================
-        # BUG FIX 3: Reset tasks_completed to 0 so the Flutter % 5 check
-        # does NOT immediately re-trigger the special task dialog on the
-        # very next _initLearningPath() call after returning from special task.
-        # The new level from this special task result is correctly applied.
-        # =====================================================================
+        start_level = determine_start_level(risk_level_str)
+        
+        # Reset tasks_completed to 0 so the special task dialog won't re-trigger
+        # immediately on the next _initLearningPath() call
         db["dyscalculia_learning_state"].update_one(
             {"user_id": result.user_id, "grade": result.grade},
             {"$set": {
@@ -333,9 +403,13 @@ async def submit_special_task(result: DyscalculiaResult):
             upsert=True
         )
         
+        print(f"Special task complete - New start level: {start_level}, tasks reset to 0")
+        
         return {"ok": True, "risk_level": risk_level_str, "next_level": start_level}
     except Exception as e:
+        print(f"ERROR in submit-special-task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/dyscalculia/learning-history/{user_id}")
 async def get_learning_history(user_id: str):
