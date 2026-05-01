@@ -101,6 +101,15 @@ try:
 except Exception as e:
     print(f"Warning: Could not load G04 Rule Engine. Error: {e}")
 
+# NEW: Load Grade 5 Rule Engine
+RULE_ENGINE_G05_PATH = os.path.join(current_dir, "learning_path_rule_engine_g05.pkl")
+rule_engine_g05 = None
+try:
+    rule_engine_g05 = joblib.load(RULE_ENGINE_G05_PATH)
+    print(f"Grade 5 Rule Engine loaded successfully")
+except Exception as e:
+    print(f"Warning: Could not load G05 Rule Engine. Error: {e}")
+
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -310,10 +319,13 @@ async def get_learning_questions(grade: int, level: str):
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
     try:
+        # Select the appropriate rule engine based on grade
         if metrics.grade == 3:
             active_rule_engine = rule_engine_g03
         elif metrics.grade == 4:
             active_rule_engine = rule_engine_g04
+        elif metrics.grade == 5:
+            active_rule_engine = rule_engine_g05
         else:
             raise HTTPException(status_code=400, detail=f"No learning path rule engine available for grade {metrics.grade}")
 
@@ -393,7 +405,6 @@ async def submit_special_task(result: DyscalculiaResult):
         start_level = determine_start_level(risk_level_str)
         
         # Reset tasks_completed to 0 so the special task dialog won't re-trigger
-        # immediately on the next _initLearningPath() call
         db["dyscalculia_learning_state"].update_one(
             {"user_id": result.user_id, "grade": result.grade},
             {"$set": {
