@@ -536,3 +536,237 @@ async def get_all_special_results(user_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/dashboard/{user_id}/{grade}")
+async def get_dashboard_data(user_id: str, grade: int):
+    """
+    Get comprehensive dashboard data for a specific user and grade.
+    """
+    try:
+        # Get latest detection result for risk level
+        detection = db["dyscalculia_results"].find_one(
+            {"user_id": user_id, "grade": grade},
+            sort=[("created_at", -1)]
+        )
+        
+        risk_level = detection.get("risk_level", "Unknown") if detection else "Unknown"
+        
+        # Get learning state
+        state = db["dyscalculia_learning_state"].find_one(
+            {"user_id": user_id, "grade": grade}
+        )
+        current_level = state.get("current_level", "N/A") if state else "N/A"
+        tasks_completed = state.get("tasks_completed", 0) if state else 0
+        
+        # Get all learning history for this grade
+        history_cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id, "grade": grade}
+        ).sort("created_at", 1)
+        
+        history_list = list(history_cursor)
+        
+        # Calculate quick stats
+        total_tasks = len(history_list)
+        total_wrong = sum(h.get("wrong_count", 0) for h in history_list)
+        total_retries = sum(h.get("retries", 0) for h in history_list)
+        total_skipped = sum(h.get("skipped_items", 0) for h in history_list)
+        total_time = sum(h.get("completion_time", 0) for h in history_list)
+        total_backtracks = sum(h.get("backtracks", 0) for h in history_list)
+        
+        overall_accuracy = 0
+        if total_tasks > 0:
+            total_accuracy = sum(h.get("accuracy", 0) for h in history_list)
+            overall_accuracy = round((total_accuracy / (total_tasks * 5)) * 100)
+        
+        avg_response_time = 0
+        avg_hesitation = 0
+        if total_tasks > 0:
+            avg_response_time = round(sum(h.get("response_time_avg", 0) for h in history_list) / total_tasks, 1)
+            avg_hesitation = round(sum(h.get("hesitation_time_avg", 0) for h in history_list) / total_tasks, 1)
+        
+        # Build learning journey
+        learning_journey = []
+        for h in history_list:
+            learning_journey.append({
+                "session": len(learning_journey) + 1,
+                "accuracy": h.get("accuracy", 0),
+                "action": h.get("evaluated_action", "Stay"),
+                "level": h.get("level_played", "N/A")
+            })
+        
+        # Get special task markers
+        special_cursor = db["dyscalculia_special_results"].find(
+            {"user_id": user_id, "grade": grade}
+        ).sort("created_at", 1)
+        special_results = list(special_cursor)
+        
+        # Map special task completion to approximate session numbers
+        special_task_markers = []
+        tasks_before = 0
+        for special in special_results:
+            special_time = special.get("created_at")
+            session_count = 0
+            for h in history_list:
+                h_time = h.get("created_at")
+                if h_time and special_time and h_time < special_time:
+                    session_count += 1
+            special_task_markers.append(session_count)
+        
+        # Calculate error trend
+        error_trend = "stable"
+        trend_percentage = 0
+        if len(history_list) >= 2:
+            first_half = history_list[:len(history_list)//2]
+            second_half = history_list[len(history_list)//2:]
+            first_wrong = sum(h.get("wrong_count", 0) for h in first_half)
+            second_wrong = sum(h.get("wrong_count", 0) for h in second_half)
+            if first_wrong > 0:
+                change = ((first_wrong - second_wrong) / first_wrong) * 100
+                if change > 5:
+                    error_trend = "decreasing"
+                    trend_percentage = round(change)
+                elif change < -5:
+                    error_trend = "increasing"
+                    trend_percentage = round(abs(change))
+        
+        # Find most challenging level
+        level_errors = {}
+        for h in history_list:
+            level = h.get("level_played", "easy")
+            if level not in level_errors:
+                level_errors[level] = 0
+            level_errors[level] += h.get("wrong_count", 0)
+        most_challenging = max(level_errors, key=level_errors.get) if level_errors else "N/A"
+        
+        # Build per-session error data
+        error_per_session = []
+        for h in history_list:
+            error_per_session.append({
+                "session": len(error_per_session) + 1,
+                "wrong": h.get("wrong_count", 0),
+                "retries": h.get("retries", 0),
+                "skipped": h.get("skipped_items", 0)
+            })
+        
+        # Build behavior data
+        response_time_trend = []
+        hesitation_trend = []
+        session_duration = []
+        for h in history_list:
+            response_time_trend.append({
+                "session": len(response_time_trend) + 1,
+                "avg_time": h.get("response_time_avg", 0)
+            })
+            hesitation_trend.append({
+                "session": len(hesitation_trend) + 1,
+                "avg_hesitation": h.get("hesitation_time_avg", 0)
+            })
+            session_duration.append({
+                "session": len(session_duration) + 1,
+                "time": h.get("completion_time", 0)
+            })
+        
+        # Build radar data
+        radar_data = {
+            "accuracy": overall_accuracy,
+            "speed": max(0, min(100, round(100 - (avg_response_time / 20) * 100))) if avg_response_time > 0 else 100,
+            "consistency": max(0, min(100, round(100 - (avg_hesitation / 10) * 100))) if avg_hesitation > 0 else 100,
+            "persistence": max(0, min(100, round(100 - (total_retries / max(1, total_tasks * 5)) * 100))),
+            "focus": max(0, min(100, round(100 - (total_backtracks / max(1, total_tasks * 5)) * 100))),
+        }
+        
+        # AI prediction (simplified)
+        prediction_trend = "stable"
+        if error_trend == "decreasing":
+            prediction_trend = "improving"
+        elif error_trend == "increasing":
+            prediction_trend = "declining"
+        
+        predicted_risk = risk_level
+        confidence = 50 + (total_tasks * 2)
+        if confidence > 95:
+            confidence = 95
+        
+        # Generate insights
+        strengths = []
+        weaknesses = []
+        recommendations = []
+        
+        if overall_accuracy >= 70:
+            strengths.append("Good accuracy in completing tasks")
+        else:
+            weaknesses.append("Accuracy needs improvement")
+            recommendations.append("Focus on understanding question patterns")
+        
+        if avg_response_time < 8:
+            strengths.append("Good response speed")
+        else:
+            weaknesses.append("Response time is slow")
+            recommendations.append("Practice timed exercises to improve speed")
+        
+        if avg_hesitation < 5:
+            strengths.append("Low hesitation - confident problem solving")
+        else:
+            weaknesses.append("High hesitation when solving problems")
+            recommendations.append("Try to reduce overthinking by practicing regularly")
+        
+        if total_retries < total_tasks * 2:
+            strengths.append("Low retry rate - persistent learner")
+        else:
+            weaknesses.append("Too many retries needed")
+            recommendations.append("Review basic concepts before attempting harder levels")
+        
+        return {
+            "ok": True,
+            "risk_level": {
+                "level": risk_level,
+                "confidence": confidence,
+                "updated_at": detection.get("created_at").isoformat() if detection and detection.get("created_at") else None
+            },
+            "quick_stats": {
+                "overall_accuracy": overall_accuracy,
+                "total_tasks": total_tasks,
+                "total_time_spent": round(total_time),
+                "current_level": current_level
+            },
+            "overview": {
+                "learning_journey": learning_journey,
+                "special_task_markers": special_task_markers,
+                "improvement_rate": trend_percentage if error_trend == "decreasing" else -trend_percentage
+            },
+            "errors": {
+                "per_session": error_per_session,
+                "totals": {
+                    "total_wrong": total_wrong,
+                    "total_retries": total_retries,
+                    "total_skipped": total_skipped
+                },
+                "trend": error_trend,
+                "trend_percentage": trend_percentage,
+                "most_challenging_level": most_challenging
+            },
+            "behavior": {
+                "response_time_trend": response_time_trend,
+                "hesitation_trend": hesitation_trend,
+                "session_duration": session_duration,
+                "averages": {
+                    "avg_response_time": avg_response_time,
+                    "avg_hesitation": avg_hesitation,
+                    "total_backtracks": total_backtracks
+                }
+            },
+            "insights": {
+                "radar_data": radar_data,
+                "prediction": {
+                    "trend": prediction_trend,
+                    "predicted_risk": predicted_risk,
+                    "confidence": confidence
+                },
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "recommendations": recommendations
+            }
+        }
+    except Exception as e:
+        print(f"ERROR in dashboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
