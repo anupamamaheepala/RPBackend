@@ -1,9 +1,6 @@
-# services/dysgraphia_improvement_service.py
-
 from services.db_service import get_db
 from datetime import datetime
 from typing import Dict, Any
-
 
 def save_improvement_session(submission_data) -> Dict[str, Any]:
     db = get_db()
@@ -11,86 +8,52 @@ def save_improvement_session(submission_data) -> Dict[str, Any]:
 
     try:
         doc = submission_data.dict()
-        total   = doc.get("total_items", 0)
+        total = doc.get("total_items", 0)
         correct = doc.get("correct_count", 0)
         doc["score_percent"] = round((correct / total * 100), 1) if total > 0 else 0.0
-        doc["created_at"]    = datetime.utcnow()
+        doc["created_at"] = datetime.utcnow()
 
         result = collection.insert_one(doc)
         return {
-            "ok":            True,
-            "session_id":    str(result.inserted_id),
+            "ok": True,
+            "session_id": str(result.inserted_id),
             "score_percent": doc["score_percent"],
-            "message":       "Improvement session saved successfully",
+            "message": "Session recorded successfully",
         }
-
     except Exception as e:
-        return {"ok": False, "error": f"Failed to save improvement session: {str(e)}"}
-
+        return {"ok": False, "error": str(e)}
 
 def get_user_improvement_results(user_id: str) -> Dict[str, Any]:
     db = get_db()
     collection = db["dysgraphia_improvement_sessions"]
 
-    sessions_raw = list(
-        collection.find(
-            {"user_id": user_id},
-            {"_id": 0}
-        ).sort("created_at", -1)
-    )
+    sessions = list(collection.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1))
 
-    if not sessions_raw:
-        return {
-            "ok":             True,
-            "user_id":        user_id,
-            "total_sessions": 0,
-            "summary":        None,
-            "sessions":       [],
-        }
+    if not sessions:
+        return {"ok": True, "user_id": user_id, "current_tier": "high", "can_detect": False, "sessions": []}
 
-    sessions = []
-    for s in sessions_raw:
-        sessions.append({
-            "grade":            s.get("grade"),
-            "risk_level":       s.get("risk_level"),
-            "activity_name":    s.get("activity_name"),
-            "activity_label":   s.get("activity_label"),
-            "total_items":      s.get("total_items"),
-            "correct_count":    s.get("correct_count"),
-            "score_percent":    s.get("score_percent"),
-            "duration_seconds": s.get("duration_seconds"),
-            "created_at":       s["created_at"].isoformat() if s.get("created_at") else None,
-        })
-
-    # Summary stats
-    avg_score = round(sum(s["score_percent"] for s in sessions) / len(sessions), 1)
-    best_score = max(s["score_percent"] for s in sessions)
-
-    # Activity breakdown — best score per activity
-    activity_bests: Dict[str, float] = {}
-    for s in sessions:
-        name = s["activity_name"]
-        if name not in activity_bests or s["score_percent"] > activity_bests[name]:
-            activity_bests[name] = s["score_percent"]
-
-    # Risk level counts
-    risk_counts = {"low": 0, "medium": 0, "high": 0}
-    for s in sessions:
-        lvl = s.get("risk_level", "")
-        if lvl in risk_counts:
-            risk_counts[lvl] += 1
+    # Latest risk level determines the current Tier
+    latest_session = sessions[0]
+    current_risk = latest_session.get("risk_level", "high")
+    
+    # Calculate Mastery for the current tier
+    # We check if the last 3 activities in this tier have scores > 80%
+    current_tier_key = f"{current_risk}_support"
+    tier_sessions = [s for s in sessions if s.get("activity_category") == current_tier_key]
+    
+    mastery_count = sum(1 for s in tier_sessions if s.get("score_percent", 0) >= 80)
+    # Threshold: Need at least 3 high-score sessions to unlock Detection
+    can_detect = mastery_count >= 3 
 
     return {
-        "ok":             True,
-        "user_id":        user_id,
-        "total_sessions": len(sessions),
+        "ok": True,
+        "user_id": user_id,
         "summary": {
-            "average_score":   avg_score,
-            "best_score":      best_score,
-            "latest_activity": sessions[0]["activity_label"],
-            "latest_score":    sessions[0]["score_percent"],
-            "risk_counts":     risk_counts,
-            "activity_bests":  activity_bests,
+            "current_risk": current_risk,
+            "total_sessions": len(sessions),
+            "can_detect_now": can_detect,
+            "mastery_progress": f"{mastery_count}/3",
+            "latest_score": latest_session.get("score_percent")
         },
-        "sessions": sessions,
+        "sessions": sessions
     }
