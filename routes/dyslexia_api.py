@@ -23,6 +23,8 @@ from models.dyslexia_request_model import ReadingRequest
 from services.dyslexia.comparator import compare_text
 from services.dyslexia.explainer import generate_explanations
 
+from services.dyslexia.skill_analyzer import analyze_skill_weakness
+
 router = APIRouter(prefix="/dyslexia", tags=["Dyslexia"])
 
 db = get_db()
@@ -65,15 +67,40 @@ async def analyze_audio(
         metrics = compute_metrics(reference_text, transcript_text, duration)
 
         # 🔥 XAI PART
+        # errors = compare_text(reference_text, transcript_text)
+        # explanations = generate_explanations(errors)
+
         errors = compare_text(reference_text, transcript_text)
         explanations = generate_explanations(errors)
+
+        eye_data = {}
+        if eye_metrics:
+            try:
+              eye_data = json.loads(eye_metrics)
+            except Exception:
+              eye_data = {}
+ 
+        skill_analysis = analyze_skill_weakness(
+            reference_text=reference_text,
+            transcript_text=transcript_text,
+            metrics=metrics,
+            eye_metrics=eye_data,
+            xai_feedback=explanations,
+   )
 
        # return {"ok": True, "metrics": metrics, "sentence_index": sentence_index}
         return {
             "ok": True,
-            "metrics": metrics,
+            # "metrics": metrics,
+             "metrics": {
+                **metrics,
+                "transcript": transcript_text,
+                "xai_feedback": explanations,
+                "skill_analysis": skill_analysis,
+            },
             "transcript": transcript_text,
             "xai_feedback": explanations,   # 🔥 NEW
+            "skill_analysis": skill_analysis,
             "sentence_index": sentence_index
     }
 
@@ -147,6 +174,14 @@ async def submit_audio(
         errors = compare_text(reference_text, transcript_text)
         explanations = generate_explanations(errors)
 
+        skill_analysis = analyze_skill_weakness(
+                reference_text=reference_text,
+                transcript_text=transcript_text,
+                metrics=metrics,
+                eye_metrics=eye_data,
+                xai_feedback=explanations,
+        )
+
         reading_doc = {
             "username": username,
             "user_id": user_id,
@@ -159,6 +194,7 @@ async def submit_audio(
             "audio_url": f"http://localhost:8000/audio/{audio_id}",
             "audio_metrics": metrics,
             "xai_feedback": explanations,
+            "skill_analysis": skill_analysis,
             "transcript" : transcript_text,
             "eye_tracking": {
                 "fixation_count": eye_data.get("fixation_count", 0),
@@ -179,6 +215,8 @@ async def submit_audio(
             "metrics": metrics,
             "eye_tracking": eye_data,
             "dyslexia_assessment": dyslexia_risk,
+            "xai_feedback": explanations,
+            "skill_analysis": skill_analysis,
         }
 
     except Exception as e:
@@ -499,9 +537,9 @@ async def get_learning_progress(user_id: str, grade: int, level: int, risk_level
         return {
             "ok": True,
             "progress": {
-                "current_activity": learning_progress.get("current_activity", 0),  # Tracks the last completed activity
-                "is_complete": learning_progress.get("is_complete", False),  # Whether the module is completed
-                "completed_at": learning_progress.get("completed_at", None),  # Timestamp of when module was completed
+                "current_activity": learning_progress.get("current_activity", 0), 
+                "is_complete": learning_progress.get("is_complete", False),  
+                "completed_at": learning_progress.get("completed_at", None),  
             }
         }
 
