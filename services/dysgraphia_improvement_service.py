@@ -20,7 +20,9 @@ def save_improvement_session(submission_data) -> Dict[str, Any]:
     collection = db["dysgraphia_improvement_sessions"]
 
     try:
-        doc     = submission_data.dict()
+        # Exclude any computed fields (e.g. accuracy) and let the server
+        # always set created_at — never trust the client clock.
+        doc     = submission_data.dict(exclude={"accuracy", "created_at"})
         total   = doc.get("total_items",   0)
         correct = doc.get("correct_count", 0)
 
