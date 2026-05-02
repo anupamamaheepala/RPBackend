@@ -420,3 +420,119 @@ async def get_all_learning_history(user_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/dyscalculia/special-results-all/{user_id}")
+async def get_all_special_results(user_id: str):
+    """
+    Get ALL special task results with their associated learning cycle history.
+    Each special result includes the history entries that happened BEFORE it
+    (since the last special task or from the beginning).
+    """
+    try:
+        # Get all special results for this user, oldest first
+        special_cursor = db["dyscalculia_special_results"].find(
+            {"user_id": user_id}
+        ).sort("created_at", 1)  # Oldest first
+        
+        special_results = list(special_cursor)
+        
+        # Get all learning history, oldest first
+        history_cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id}
+        ).sort("created_at", 1)  # Oldest first
+        
+        all_history = list(history_cursor)
+        
+        # Build result: each special task with its preceding history
+        result_list = []
+        history_start_idx = 0
+        
+        for special in special_results:
+            special_time = special.get("created_at")
+            
+            # Collect history entries that happened before this special task
+            # but after the previous special task
+            cycle_history = []
+            while history_start_idx < len(all_history):
+                hist = all_history[history_start_idx]
+                hist_time = hist.get("created_at")
+                
+                if hist_time and special_time and hist_time < special_time:
+                    cycle_history.append(hist)
+                    history_start_idx += 1
+                else:
+                    break
+            
+            # Format special result
+            special_dict = {
+                "_id": str(special["_id"]),
+                "grade": special.get("grade", 3),
+                "risk_level": special.get("risk_level", "Unknown"),
+                "accuracy": special.get("accuracy", 0),
+                "retries": special.get("retries", 0),
+                "wrong_count": special.get("wrong_count", 0),
+                "completion_time": special.get("completion_time", 0),
+                "hesitation_time_avg": special.get("hesitation_time_avg", 0),
+                "response_time_avg": special.get("response_time_avg", 0),
+                "skipped_items": special.get("skipped_items", 0),
+                "backtracks": special.get("backtracks", 0),
+                "created_at": special["created_at"].isoformat() if special.get("created_at") else None,
+            }
+            
+            # Format history entries
+            formatted_history = []
+            for h in cycle_history:
+                formatted_history.append({
+                    "_id": str(h["_id"]),
+                    "grade": h.get("grade", 3),
+                    "evaluated_action": h.get("evaluated_action", "Unknown"),
+                    "level_played": h.get("level_played", "N/A"),
+                    "next_level": h.get("next_level", "N/A"),
+                    "accuracy": h.get("accuracy", 0),
+                    "retries": h.get("retries", 0),
+                    "wrong_count": h.get("wrong_count", 0),
+                    "completion_time": h.get("completion_time", 0),
+                    "hesitation_time_avg": h.get("hesitation_time_avg", 0),
+                    "response_time_avg": h.get("response_time_avg", 0),
+                    "skipped_items": h.get("skipped_items", 0),
+                    "backtracks": h.get("backtracks", 0),
+                    "created_at": h["created_at"].isoformat() if h.get("created_at") else None,
+                })
+            
+            result_list.append({
+                "special_task": special_dict,
+                "cycle_history": formatted_history,
+            })
+        
+        # Collect any remaining history after the last special task
+        remaining_history = []
+        while history_start_idx < len(all_history):
+            h = all_history[history_start_idx]
+            remaining_history.append({
+                "_id": str(h["_id"]),
+                "grade": h.get("grade", 3),
+                "evaluated_action": h.get("evaluated_action", "Unknown"),
+                "level_played": h.get("level_played", "N/A"),
+                "next_level": h.get("next_level", "N/A"),
+                "accuracy": h.get("accuracy", 0),
+                "retries": h.get("retries", 0),
+                "wrong_count": h.get("wrong_count", 0),
+                "completion_time": h.get("completion_time", 0),
+                "hesitation_time_avg": h.get("hesitation_time_avg", 0),
+                "response_time_avg": h.get("response_time_avg", 0),
+                "skipped_items": h.get("skipped_items", 0),
+                "backtracks": h.get("backtracks", 0),
+                "created_at": h["created_at"].isoformat() if h.get("created_at") else None,
+            })
+            history_start_idx += 1
+        
+        # Reverse to show newest first
+        result_list.reverse()
+        
+        return {
+            "ok": True,
+            "results": result_list,
+            "current_cycle_history": remaining_history  # History after last special task (in progress)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
