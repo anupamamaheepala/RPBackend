@@ -397,3 +397,26 @@ async def get_learning_history(user_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/dyscalculia/learning-history-all/{user_id}")
+async def get_all_learning_history(user_id: str):
+    """
+    Get ALL learning history for a user (not limited to 5)
+    """
+    try:
+        cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id}
+        ).sort("created_at", -1)  # Most recent first
+        
+        history_list = list(cursor)
+        for h in history_list:
+            h["_id"] = str(h["_id"])
+            if "created_at" in h and h["created_at"]:
+                h["created_at"] = h["created_at"].isoformat()
+                
+        return {
+            "ok": True,
+            "history": history_list
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
