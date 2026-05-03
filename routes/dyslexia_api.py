@@ -23,6 +23,8 @@ from models.dyslexia_request_model import ReadingRequest
 from services.dyslexia.comparator import compare_text
 from services.dyslexia.explainer import generate_explanations
 
+from services.dyslexia.skill_analyzer import analyze_skill_weakness
+
 router = APIRouter(prefix="/dyslexia", tags=["Dyslexia"])
 
 db = get_db()
@@ -65,15 +67,40 @@ async def analyze_audio(
         metrics = compute_metrics(reference_text, transcript_text, duration)
 
         # 🔥 XAI PART
+        # errors = compare_text(reference_text, transcript_text)
+        # explanations = generate_explanations(errors)
+
         errors = compare_text(reference_text, transcript_text)
         explanations = generate_explanations(errors)
+
+        eye_data = {}
+        if eye_metrics:
+            try:
+              eye_data = json.loads(eye_metrics)
+            except Exception:
+              eye_data = {}
+ 
+        skill_analysis = analyze_skill_weakness(
+            reference_text=reference_text,
+            transcript_text=transcript_text,
+            metrics=metrics,
+            eye_metrics=eye_data,
+            xai_feedback=explanations,
+   )
 
        # return {"ok": True, "metrics": metrics, "sentence_index": sentence_index}
         return {
             "ok": True,
-            "metrics": metrics,
+            # "metrics": metrics,
+             "metrics": {
+                **metrics,
+                "transcript": transcript_text,
+                "xai_feedback": explanations,
+                "skill_analysis": skill_analysis,
+            },
             "transcript": transcript_text,
             "xai_feedback": explanations,   # 🔥 NEW
+            "skill_analysis": skill_analysis,
             "sentence_index": sentence_index
     }
 
@@ -147,6 +174,14 @@ async def submit_audio(
         errors = compare_text(reference_text, transcript_text)
         explanations = generate_explanations(errors)
 
+        skill_analysis = analyze_skill_weakness(
+                reference_text=reference_text,
+                transcript_text=transcript_text,
+                metrics=metrics,
+                eye_metrics=eye_data,
+                xai_feedback=explanations,
+        )
+
         reading_doc = {
             "username": username,
             "user_id": user_id,
@@ -159,6 +194,7 @@ async def submit_audio(
             "audio_url": f"http://localhost:8000/audio/{audio_id}",
             "audio_metrics": metrics,
             "xai_feedback": explanations,
+            "skill_analysis": skill_analysis,
             "transcript" : transcript_text,
             "eye_tracking": {
                 "fixation_count": eye_data.get("fixation_count", 0),
@@ -179,6 +215,8 @@ async def submit_audio(
             "metrics": metrics,
             "eye_tracking": eye_data,
             "dyslexia_assessment": dyslexia_risk,
+            "xai_feedback": explanations,
+            "skill_analysis": skill_analysis,
         }
 
     except Exception as e:
@@ -251,39 +289,73 @@ async def generate_tts(text: str = Form(...)):
 
 @router.post("/submit-session")
 def submit_session(payload: SessionPayload):
-    # 1. Prepare the dictionary specifically for the ML Model
-    # These keys MUST match the FEATURES list in your predict.py
+
+    def safe_float(value, default=0.0):
+        try:
+            return float(value)
+        except:
+            return default
+
+    # -------------------------------
+    # Validate required fields
+    # -------------------------------
+    required_fields = [
+        "grade", "level", "total_words",
+        "overall_accuracy", "avg_WER", "avg_CER",
+        "total_time_seconds", "avg_words_per_second",
+        "avg_regression_count"
+    ]
+
+    missing = [f for f in required_fields if getattr(payload, f) is None]
+
+    if missing:
+        return {
+            "ok": False,
+            "error": f"Missing required fields: {missing}"
+        }
+
+    # -------------------------------
+    # Prepare ML input
+    # -------------------------------
     ml_input = {
-        "grade": payload.grade,
-        "level": payload.level,
-        "total_words": payload.total_words,
-        "overall_accuracy": payload.overall_accuracy,
-        "avg_WER": payload.avg_WER,
-        "avg_CER": payload.avg_CER,
-        "total_time_seconds": payload.total_time_seconds,
-        # These are usually binary flags (0 or 1) based on your training data logic
-        "dyslexia_assessment.phonological_risk": 1 if payload.avg_CER > 0.2 else 0, 
-        "dyslexia_assessment.fluency_risk": 1 if payload.avg_words_per_second < 0.5 else 0,
-        "dyslexia_assessment.eye_risk": 1 if payload.avg_regression_count > 10 else 0
+        "grade": int(payload.grade),
+        "level": int(payload.level),
+        "total_words": safe_float(payload.total_words),
+
+        "overall_accuracy": safe_float(payload.overall_accuracy),
+        "avg_WER": safe_float(payload.avg_WER),
+        "avg_CER": safe_float(payload.avg_CER),
+        "total_time_seconds": safe_float(payload.total_time_seconds),
+
+        "avg_words_per_second": safe_float(payload.avg_words_per_second),
+        "avg_regression_count": safe_float(payload.avg_regression_count)
     }
 
-    # 2. Get the prediction from the Trained Model
+    print("ML INPUT:", ml_input)
+
+    # -------------------------------
+    # ML Prediction
+    # -------------------------------
     try:
         dyslexia_risk = predict_dyslexia_risk_ml(ml_input)
     except Exception as e:
-        print(f"CRITICAL ML ERROR: {e}")
-        # Manual fallback logic only if the model fails
-        audio_metrics = {"accuracy_percent": payload.overall_accuracy, "wer": payload.avg_WER}
-        eye_metrics = {"regression_count": payload.avg_regression_count}
-        dyslexia_risk = compute_dyslexia_risk(audio_metrics, eye_metrics)
+        print("CRITICAL ML ERROR:", e)
+        dyslexia_risk = {
+            "risk_level": "UNKNOWN",
+            "confidence": 0,
+            "method": "ML Failed"
+        }
 
-    # 3. Save to Database (Keep your existing DB logic!)
+    print("ML OUTPUT:", dyslexia_risk)
+
+    # -------------------------------
+    # Save to DB
+    # -------------------------------
     created_at = datetime.utcnow()
     session_doc = payload.model_dump()
     session_doc["dyslexia_assessment"] = dyslexia_risk
     session_doc["created_at"] = created_at
 
-    # Insert into MongoDB
     result = db["reading_sessions"].insert_one(session_doc)
 
     learning_progress_doc = {
@@ -291,13 +363,13 @@ def submit_session(payload: SessionPayload):
         "username": payload.username,
         "grade": payload.grade,
         "level": payload.level,
-        "risk_level": dyslexia_risk.get("risk_level", "UNKNOWN"),  # Adjust based on your risk structure
+        "risk_level": dyslexia_risk.get("risk_level", "UNKNOWN"),
         "created_at": created_at,
         "is_complete": False
     }
 
     db["learning_progress"].insert_one(learning_progress_doc)
-    
+
     stats_doc = {
         "username": payload.username,
         "user_id": payload.user_id,
@@ -308,9 +380,12 @@ def submit_session(payload: SessionPayload):
         "full_session_id": str(result.inserted_id),
         "created_at": created_at,
     }
+
     stats_result = db["reading_session_stats"].insert_one(stats_doc)
 
-    # 4. Return the result to Flutter
+    # -------------------------------
+    # Response
+    # -------------------------------
     return {
         "ok": True,
         "session_id": str(result.inserted_id),
@@ -499,9 +574,9 @@ async def get_learning_progress(user_id: str, grade: int, level: int, risk_level
         return {
             "ok": True,
             "progress": {
-                "current_activity": learning_progress.get("current_activity", 0),  # Tracks the last completed activity
-                "is_complete": learning_progress.get("is_complete", False),  # Whether the module is completed
-                "completed_at": learning_progress.get("completed_at", None),  # Timestamp of when module was completed
+                "current_activity": learning_progress.get("current_activity", 0), 
+                "is_complete": learning_progress.get("is_complete", False),  
+                "completed_at": learning_progress.get("completed_at", None),  
             }
         }
 
