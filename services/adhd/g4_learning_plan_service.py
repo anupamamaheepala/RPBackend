@@ -44,7 +44,7 @@ PROFILE_LABELS = {
     "profile_a": "ඉහළ අවධානය ✨",
     "profile_b": "අවධානය වර්ධනය කරමු 📚",
     "profile_c": "ආවේගශීලීතාවය පාලනය කරමු 🧘",
-    "profile_d": "සමබර ඉගෙනීම 🌱",
+    "profile_d": "සමබල ඉගෙනීම 🌱",
 }
 
 # ── Activity library (Grade 4, age-appropriate) ───────────────────────────────
@@ -56,7 +56,7 @@ ACTIVITY_LIBRARY = {
             type="inhibition",
             duration_min=10,
             delivery="in_app",
-            instructions="ගමනාගමන ආලෝකය දිස් වන විට: කොළ = ස්පර්ශ කරන්න, රතු/කහ = නොකරන්න. ඉක්මනින් ප්‍රතිචාර දක්වන්න.",
+            instructions="ගමනාගමන ආලෝකය දිස් වන විට: කොළ = ස්පර්ශ කරන්න, රතු/කහ = නතර වන්න. ඉක්මනින් ප්‍රතිචාර දක්වන්න.",
         ),
         G4LearningActivity(
             title="ජෝඩු කරමු — Think-Aloud",
@@ -64,7 +64,7 @@ ACTIVITY_LIBRARY = {
             type="comprehension",
             duration_min=10,
             delivery="teacher_led",
-            instructions="ගුරුවරයා සමඟ ජෝඩු වී කියවන්න. සෑම ඡේදයකට පසු ප්‍රශ්නයක් විසඳන්න.",
+            instructions="ගුරුවරයා සමඟ එක්ව කියවන්න. සෑම ඡේදයකටම පසු ප්‍රශ්නයකට පිළිතුරු දෙන්න.",
         ),
         G4LearningActivity(
             title="කෙටි සාරාංශ ලිවීම",
@@ -72,15 +72,15 @@ ACTIVITY_LIBRARY = {
             type="comprehension",
             duration_min=8,
             delivery="independent",
-            instructions="කියෙව්ව දේ 3 වාක්‍යයෙන් ලියන්න. ශබ්ද කෝශය නොබලා.",
+            instructions="කියවූ දේ වාක්‍ය 3කින් ලියන්න. ශබ්දකෝෂය භාවිතා නොකරන්න.",
         ),
         G4LearningActivity(
-            title="Chess / ගැටළු ෙකළිය",
+            title="චෙස් හෝ ප්‍රහේලිකා ක්‍රීඩා",
             description="Strategy game — builds planning and inhibitory control",
             type="inhibition",
             duration_min=10,
             delivery="independent",
-            instructions="Chess හෝ Sudoku ක්‍රීඩාව දිනකට විනාඩි 10ක් ක්‍රීඩා කරන්න.",
+            instructions="චෙස් හෝ සුඩෝකු (Sudoku) වැනි ක්‍රීඩාවක දිනකට විනාඩි 10ක් නිරත වන්න.",
         ),
     ],
     "profile_b": [
@@ -90,7 +90,7 @@ ACTIVITY_LIBRARY = {
             type="memory",
             duration_min=8,
             delivery="in_app",
-            instructions="කතාව 2 වාක්‍ය දිගයෙන් සවන් දෙන්න. 3 රූප නිවැරදිව සකසන්න. නැවත 1 වරක් ශ්‍රවණය කළ හැක.",
+            instructions="වාක්‍ය 2ක දිගින් යුත් කතාවට සවන් දෙන්න. රූප 3ක් නිවැරදි පිළිවෙලට සකසන්න. එක් වරක් නැවත සවන් දිය හැක.",
         ),
         G4LearningActivity(
             title="ජෝඩු කියවීම — ප්‍රශ්න සමඟ",
@@ -98,7 +98,7 @@ ACTIVITY_LIBRARY = {
             type="comprehension",
             duration_min=8,
             delivery="teacher_led",
-            instructions="ගුරුවරයා සමඟ ජෝඩු කියවීමෙදී සෑම ඡේදයකට ප්‍රශ්නයකට පිළිතුරු දෙන්න.",
+            instructions="ගුරුවරයා සමඟ එක්ව කියවන අතරතුර සෑම ඡේදයකටම අදාළ ප්‍රශ්න වලට පිළිතුරු දෙන්න.",
         ),
         G4LearningActivity(
             title="කෙටි සාරාංශ ලිවීම",
@@ -106,15 +106,15 @@ ACTIVITY_LIBRARY = {
             type="comprehension",
             duration_min=7,
             delivery="independent",
-            instructions="කියෙව්ව දේ ගැන 3 වාක්‍යයකින් ලියන්න.",
+            instructions="කියවූ දේ ගැන වාක්‍ය 3ක් ස්වාධීනව ලියන්න.",
         ),
         G4LearningActivity(
-            title="Sticker ත්‍යාග ක්‍රමය",
+            title="ස්ටිකර් ත්‍යාග ක්‍රමය",
             description="Reward chart to reinforce sustained attention daily",
             type="focus_builder",
             duration_min=5,
             delivery="independent",
-            instructions="දිනකට ඉලක්ක 3 ලිවා ඒවා සම්පූර්ණ කළ විට sticker එකක් දමන්න.",
+            instructions="දිනකට ඉලක්ක 3ක් ලියා ඒවා සම්පූර්ණ කළ විට ස්ටිකර් එකක් අලවන්න.",
         ),
     ],
     "profile_c": [
@@ -124,7 +124,7 @@ ACTIVITY_LIBRARY = {
             type="inhibition",
             duration_min=10,
             delivery="in_app",
-            instructions="Stop/Go task Level 1 සම්පූර්ණ කරන්න. Follow Card task: නීති 3 කටපාඩම් කර ක්‍රියාත්මක කරන්න.",
+            instructions="Stop/Go task Level 1 සම්පූර්ණ කරන්න. පසුව නීති 3ක් මතක තබාගෙන ක්‍රියාත්මක කරන්න.",
         ),
         G4LearningActivity(
             title="Think-Aloud ගැටළු විසඳීම",
@@ -132,23 +132,23 @@ ACTIVITY_LIBRARY = {
             type="inhibition",
             duration_min=8,
             delivery="teacher_led",
-            instructions="ගුරුවරයා ගැටළුවක් දෙයි. ශිෂ්‍යයා: 'මම හිතන්නේ...' කියා 声に出して (声出して) කියමින් විසඳීම කරයි.",
+            instructions="ගුරුවරයා ගැටළුවක් ලබා දෙයි. ශිෂ්‍යයා එය විසඳන ආකාරය ශබ්ද නගා පවසමින් සිදු කළ යුතුය.",
         ),
         G4LearningActivity(
-            title="Chess / Strategy ෙකළිය",
+            title="උපායමාර්ගික ක්‍රීඩා",
             description="Chess or puzzle — builds planning before acting",
             type="inhibition",
             duration_min=10,
             delivery="independent",
-            instructions="Chess, Sudoku, හෝ strategy puzzle ක්‍රීඩා කරන්න. ඉක්මනින් ගෙමෙවීම ගාමු නොකරන්න.",
+            instructions="චෙස් හෝ සුඩෝකු ක්‍රීඩා කරන්න. පියවරක් ගැනීමට පෙර හොඳින් සිතීමට පුහුණු වන්න.",
         ),
         G4LearningActivity(
-            title="One-step-at-a-time කාර්ය",
+            title="පියවරෙන් පියවර කාර්යයන්",
             description="Break assignments into single steps — reduces impulsive rushing",
             type="focus_builder",
             duration_min=5,
             delivery="independent",
-            instructions="ගෙදර කාර්යය කොටස් 3කට කඩා, එකිනෙකක් ඉවර කළ මතු ඊළඟ කොටස ආරම්භ කරන්න.",
+            instructions="ගෙදර වැඩ කොටස් කිහිපයකට කඩා, එකක් අවසන් වූ පසු පමණක් අනෙක ආරම්භ කරන්න.",
         ),
     ],
     "profile_d": [
@@ -158,31 +158,31 @@ ACTIVITY_LIBRARY = {
             type="inhibition",
             duration_min=6,
             delivery="in_app",
-            instructions="Go/No-Go Level 1 කරන්න. Stay & Complete: ගණිත ගැටළු 5 ශ්‍රේණිගත ලෙස ඉවර කරන්න.",
+            instructions="Go/No-Go Level 1 කරන්න. පසුව ලබා දෙන කෙටි ගණිත ගැටළු 5 අවසන් කරන්න.",
         ),
         G4LearningActivity(
-            title="One-step-at-a-time ගුරු සහාය",
+            title="පියවරෙන් පියවර ගුරු සහාය",
             description="Teacher breaks task into one step at a time",
             type="focus_builder",
             duration_min=6,
             delivery="teacher_led",
-            instructions="ගුරුවරයා: පළමු පියවර පමණක් කියන්න. ශිෂ්‍යයා ඉවර කළ පසු ඊළඟ පියවර දෙන්න.",
+            instructions="ගුරුවරයා එක් වරකට එක් පියවරක් පමණක් පවසයි. එය අවසන් වූ පසු ඊළඟ පියවර ලබා දෙයි.",
         ),
         G4LearningActivity(
-            title="Sticker ත්‍යාග ක්‍රමය",
+            title="ස්ටිකර් ත්‍යාග ක්‍රමය",
             description="Daily reward chart to motivate task completion",
             type="focus_builder",
             duration_min=5,
             delivery="independent",
-            instructions="සෑම කාර්යයක් ඉවර කළ විට sticker දමන්න. දිනකට 3 sticker = විශේෂ ත්‍යාගයක්.",
+            instructions="සෑම කුඩා කාර්යයක් අවසානයේම ස්ටිකරයක් ලබා දෙන්න. දිනකට ස්ටිකර් 3ක් ලැබූ විට විශේෂ ත්‍යාගයක් ලබා දෙන්න.",
         ),
         G4LearningActivity(
-            title="Physical Movement + කෙටි කාර්ය",
+            title="ශාරීරික විවේකය + කෙටි කාර්යයන්",
             description="Short physical break then resume short task — resets attention",
             type="focus_builder",
             duration_min=10,
             delivery="independent",
-            instructions="විනාඩි 5ක් ශාරීරික ව්‍යායාම + විනාඩි 5ක් ගණිත ගැළළු 3. ඒ ආකාරයෙන් වෙනස් කරන්න.",
+            instructions="විනාඩි 5ක ශාරීරික ව්‍යායාමයකින් පසු විනාඩි 5ක් ඉගෙනීමේ කටයුතු වල නිරත වන්න.",
         ),
     ],
 }
@@ -190,47 +190,40 @@ ACTIVITY_LIBRARY = {
 # ── Teacher & parent notes ────────────────────────────────────────────────────
 TEACHER_NOTES = {
     "profile_a": (
-        "මෙෙ ශිෂ්‍යයා Grade 4 මට්ටමේ හොඳ අවධානයක් පෙන්වයි. "
-        "දිගු කාලීන project කාර්යයන් ලබා දෙන්න. "
-        "ඉහළ cognitive load ඇති ගැටළු ලබා දී critical thinking දිරිගන්වන්න."
+        "මෙම ශිෂ්‍යයා 4 වන ශ්‍රේණියේ මට්ටමට සාපේක්ෂව ඉහළ අවධානයක් පෙන්වයි. "
+        "ඔහුට දිගුකාලීන ව්‍යාපෘති සහ විවේචනාත්මක චින්තනය (critical thinking) අවශ්‍ය වන ගැටළු ලබා දෙන්න."
     ),
     "profile_b": (
-        "මෙෙ ශිෂ්‍යයාට දිගු අවධානය ගැටළුවකි. "
-        "පාඩම් කොටස් 2-3 කට බෙදන්න. සෑෙ විනාඩි 8 කට ප්‍රශ්නයක් ඇසීෙෙන් "
-        "ශිෂ්‍යයාෙේ අවධානය නැවත ෙෙොඩ නං ෙෙො. "
-        "ශිෂ්‍යයාට ඉදිරිපස ආසනයක් ලො ෙෙෙදෙෙෙෙෙ. "
-        "Listen & Extract task නැවත ශ්‍රවණය කිරීමෙ ගණන නිරීක්ෂිතකරන්න."
+        "මෙම ශිෂ්‍යයාට දිගු වේලාවක් අවධානය පවත්වා ගැනීම අපහසුය. "
+        "එබැවින් පාඩම් කොටස් 2-3 කට බෙදා උගන්වන්න. සෑම විනාඩි 8කටම වරක් ප්‍රශ්නයක් අසා අවධානය පරීක්ෂා කරන්න. "
+        "පන්තියේ ඉදිරිපස අසුනක් ලබා දීම වඩාත් සුදුසුයි."
     ),
     "profile_c": (
-        "මෙෙ ශිෂ්‍යයාෙේ ආෙෙගශීලීතාෙය ෙෙෙෙ. "
-        "ෙෙ Think-Aloud ක්‍රමය ොෙිතා ෙෙරෙෙෙෙෙ. "
-        "ෙෙ Follow Card ෙෙෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙෙ. "
-        "ෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙෙ — ෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙ ෙෙ ෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙ."
+        "මෙම ශිෂ්‍යයාගේ ආවේගශීලීතාවය පාලනය කිරීම සඳහා 'Think-Aloud' ක්‍රමය භාවිතා කරන්න. "
+        "වැඩක් ආරම්භ කිරීමට පෙර සැලසුම් කිරීමට සහ උපදෙස් හොඳින් කියවීමට හුරු කරන්න."
     ),
     "profile_d": (
-        "මෙෙ ශිෂ්‍යයාෙේ ෙෙෙෙෙෙෙෙ ෙෙ ෙෙෙෙෙෙ ෙෙ ෙෙෙෙෙ. "
-        "ෙෙ ෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙෙ. "
-        "ෙෙෙෙ ෙෙෙෙෙ 1ෙෙ ෙෙෙෙෙ ෙෙෙෙෙ. "
-        "ෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙ."
+        "මෙම ශිෂ්‍යයාට අවධානය සහ ආවේගශීලීතාවය යන දෙකෙහිම ගැටළු පවතී. "
+        "එබැවින් ඉතා සරල, එක් පියවරක උපදෙස් පමණක් ලබා දෙන්න. ස්ටිකර් වැනි දිරිගැන්වීමේ ක්‍රම නිතර භාවිතා කරන්න."
     ),
 }
 
 PARENT_NOTES = {
     "profile_a": (
-        "ඔෙෙ දරෙෙ Grade 4 ෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙෙ ෙෙෙෙෙෙ. "
-        "ෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ Chess, ෙෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ."
+        "ඔබේ දරුවා 4 වන ශ්‍රේණියේ මට්ටමින් හොඳ අවධානයක් පෙන්වයි. "
+        "නිවසේදී චෙස් වැනි උපායමාර්ගික ක්‍රීඩා සඳහා දරුවා යොමු කරන්න."
     ),
     "profile_b": (
-        "ෙෙෙෙ ෙෙෙෙෙෙෙෙ ෙෙෙෙෙෙ: ෙෙෙෙෙ ෙෙෙෙෙෙ 20 ෙෙෙෙෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙ. "
-        "ෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ."
+        "නිවසේ ඉගෙනීමේ කටයුතු වලදී විනාඩි 20කට වඩා එක දිගට වැඩ කිරීමට බල නොකරන්න. "
+        "පැහැදිලි කෙටි ඉලක්ක ලබා දී ඒවා අවසන් කිරීමට සහාය වන්න."
     ),
     "profile_c": (
-        "ෙෙෙෙ ෙෙෙෙෙෙෙෙ ෙෙෙෙෙෙ: ෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ. "
-        "Chess, Sudoku, ෙෙෙෙ strategy ෙෙෙෙෙ ෙෙෙෙෙෙෙ ෙෙෙෙෙෙෙ."
+        "නිවසේදී ඕනෑම ක්‍රියාවක් කිරීමට පෙර තත්පර කිහිපයක් සිතීමට දරුවාට උගන්වන්න. "
+        "හුස්ම ගැනීමේ ව්‍යායාම සහ සුඩෝකු වැනි ක්‍රීඩා මෙයට උදව් වේ."
     ),
     "profile_d": (
-        "ෙෙෙෙ ෙෙෙෙෙෙෙෙ ෙෙෙෙෙෙ: ෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙ. "
-        "ෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙෙ ෙෙෙෙෙ ෙෙෙෙ ෙෙෙෙෙ."
+        "දරුවාට වැඩ කිරීමේදී නිතර විවේක ලබා දෙන්න. "
+        "කුඩා ජයග්‍රහණ පවා අගය කරන්න. පියවරෙන් පියවර වැඩ කිරීමට හුරු කරවන්න."
     ),
 }
 
