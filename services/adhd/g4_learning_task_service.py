@@ -1,128 +1,226 @@
 """
-Grade 5 Learning Plan Service — Ages 10-11 years
-Profile A: chunk=5, session=20min
-Profile B: chunk=3, session=10min
-Profile C: chunk=4, session=12min
-Profile D: chunk=2, session=7min
+Grade 4 Learning Task Service
+Same 5 task types as Grade 3 — difficulty parameters scaled for Grade 4 (9-10 years).
+Task assignment logic identical to Grade 3 service.
 """
+
 from datetime import datetime
-from models.adhd.g5_learning_plan_model import (
-    G5LearningPlanRequest, G5LearningPlanResponse,
-    G5AdaptationParams, G5LearningActivity,
+from models.adhd.g4_learning_task_model import (
+    G4LearningTaskAssignRequest, G4AssignedTask,
+    G4LearningTaskAssignResponse, G4LearningTaskResult,
+    G4LearningTaskResultResponse,
 )
 from services.db_service import get_db
 
-PROFILE_PARAMS = {
-    "profile_a": dict(chunk_size=5, session_minutes=20, break_frequency=20,
-                      modality="visual_only",  pacing="timed",
-                      visual_complexity="high", feedback_style="visual",
-                      encouragement_level="standard"),
-    "profile_b": dict(chunk_size=3, session_minutes=10, break_frequency=10,
-                      modality="audio_visual", pacing="self_paced",
-                      visual_complexity="low",  feedback_style="immediate_audio",
-                      encouragement_level="high"),
-    "profile_c": dict(chunk_size=4, session_minutes=12, break_frequency=12,
-                      modality="visual_only",  pacing="timed_relaxed",
-                      visual_complexity="medium", feedback_style="haptic_visual",
-                      encouragement_level="high"),
-    "profile_d": dict(chunk_size=2, session_minutes=7,  break_frequency=7,
-                      modality="audio_visual", pacing="self_paced",
-                      visual_complexity="low",  feedback_style="immediate_audio",
-                      encouragement_level="very_high"),
+
+# ── Grade 4 task definitions ──────────────────────────────────────────────────
+# Instructions updated for Grade 4 age (9-10 years) with corrected Sinhala grammar.
+
+TASK_DEFINITIONS = {
+    "gonogo": {
+        "name": "යන්න / නොයන්න",
+        "target": "impulsivity",
+        "instructions": {
+            1: "ගමනාගමන ආලෝකය: කොළ පැහැය දුටු විට ස්පර්ශ කරන්න. රතු හෝ කහ පැහැයට ස්පර්ශ නොකරන්න. වාර 15ක්.",
+            2: "ඉක්මනින් ප්‍රතිචාර දක්වන්න. රතු හෝ කහ පැහැයට ස්පර්ශ කිරීමෙන් වළකින්න. වාර 20ක්.",
+            3: "වැඩි වේගයකින් ප්‍රතිචාර දක්වන්න. අවධානයෙන් සිට රතු සහ කහ ආලෝකයන් මඟ හරින්න. වාර 25ක්.",
+        },
+    },
+    "wait_match": {
+        "name": "බලා ගැලපීම",
+        "target": "impulsivity",
+        "instructions": {
+            1: "රූපය දෙස තත්පර 2.5ක් බලා සිටින්න. ඉන්පසු දී ඇති රූප 3කින් නිවැරදි රූපය තෝරා ගලපන්න.",
+            2: "රූපය දෙස තත්පර 2ක් බලා සිටින්න. ඉන්පසු නිවැරදි රූපය ඉක්මනින් තෝරා ගලපන්න.",
+            3: "රූපය දෙස තත්පර 1ක් පමණක් බලා සිටින්න. ඉන්පසු ඉතා ඉක්මනින් නිවැරදි රූපය තෝරා ගලපන්න.",
+        },
+    },
+    "audio_sequence": {
+        "name": "කතාව අනුපිළිවෙල",
+        "target": "inattention",
+        "instructions": {
+            1: "වාක්‍ය 3කින් යුත් කතාවට සවන් දෙන්න. රූප 3ක් නිවැරදි අනුපිළිවෙලට සකසන්න. වාර 2ක් නැවත සවන් දිය හැක.",
+            2: "කතාවට සවන් දෙන්න. රූප 3ක් නිවැරදි අනුපිළිවෙලට සකසන්න. නැවත සවන් දිය හැක්කේ 1 වරක් පමණි.",
+            3: "කතාවට අවධානයෙන් සවන් දෙන්න. රූප නිවැරදි අනුපිළිවෙලට සකසන්න. නැවත සවන් දීමට අවස්ථාවක් නොලැබේ.",
+        },
+    },
+    "spot_change": {
+        "name": "වෙනස සොයන්න",
+        "target": "inattention",
+        "instructions": {
+            1: "රූප දෙක අතර ඇති වෙනස්කම් සොයා ස්පර්ශ කරන්න. තත්පර 8ක් ඇතුළත අවසන් කිරීමට උත්සාහ කරන්න.",
+            2: "රූප අතර ඇති වෙනස්කම් ඉක්මනින් සොයන්න. තත්පර 6ක් ඇතුළත අවසන් කරන්න.",
+            3: "ඉතා ඉක්මනින් වෙනස්කම් සොයන්න. තත්පර 5ක් ඇතුළත මෙය අවසන් කිරීමට උත්සාහ කරන්න.",
+        },
+    },
+    "attention_grid": {
+        "name": "අවධාන ජාලය",
+        "target": "maintenance",
+        "instructions": {
+            1: "4x4 කොටු ජාලය තුළ ඇති ඉලක්කයන් සොයන්න. තත්පර 28ක් ඇතුළත අවසන් කරන්න.",
+            2: "4x4 කොටු ජාලය තුළ ඇති ඉලක්කයන් ඉක්මනින් සොයන්න. තත්පර 23ක් ඇතුළත අවසන් කරන්න.",
+            3: "5x5 කොටු ජාලය තුළ ඇති ඉලක්කයන් අවධානයෙන් සොයන්න. තත්පර 18ක් ඇතුළත අවසන් කරන්න.",
+        },
+    },
 }
 
-PROFILE_LABELS = {
-    "profile_a": "ඉහළ අවධානය ✨",
-    "profile_b": "අවධානය වර්ධනය කරමු 📚",
-    "profile_c": "ආවේගශීලීතාවය පාලනය කරමු 🧘",
-    "profile_d": "සමබල ඉගෙනීම 🌱",
-}
 
-ACTIVITY_LIBRARY = {
-    "profile_a": [
-        G5LearningActivity(title="Spot the Change + Filter Level 2",
-            description="Advanced visual attention and filtering — Grade 5 challenge",
-            type="focus_builder", duration_min=12, delivery="in_app",
-            instructions="Spot the Change: Identify 2 changes in 7s. Filter: Tap green, ignore blue in 4x4 grid. 20 trials."),
-        G5LearningActivity(title="ගුරු-නිර්දේශිත සටහන් ගැනීම",
-            description="Guided note-taking — structured listening and writing",
-            type="comprehension", duration_min=10, delivery="teacher_led",
-            instructions="ගුරුවරයා කෙටි කොටසක් කියවයි. ශිෂ්‍යයා ප්‍රධාන කරුණු 3ක් ලියයි. කිසිදු යෙදුම් සහය නොමැතිව."),
-        G5LearningActivity(title="මතකයෙන් මනස-සිතියම",
-            description="Mind map from memory — Grade 5 comprehension extension",
-            type="memory", duration_min=8, delivery="independent",
-            instructions="කෙටි ඡේදයක් 1 වතාවක් කියවා, පොත වසා, අදහස් සිතියමක් අඳින්න."),
-        G5LearningActivity(title="Switch Go Level 2 Strategy",
-            description="Cognitive flexibility training with self-monitoring",
-            type="inhibition", duration_min=10, delivery="independent",
-            instructions="Switch Go task: Rules change every 10 trials. Record results in the self-monitoring diary."),
-    ],
-    "profile_b": [
-        G5LearningActivity(title="Audio Sequence Level 3 + Filter",
-            description="Inattention — auditory sequencing and selective attention",
-            type="memory", duration_min=10, delivery="in_app",
-            instructions="Audio Sequence: 4 sentences, 1 play only, order 4 items. Filter: Tap green only in 4x4 grid."),
-        G5LearningActivity(title="ගුරු-නිර්දේශිත ස්මරණ",
-            description="Teacher-directed recall — structured comprehension",
-            type="comprehension", duration_min=8, delivery="teacher_led",
-            instructions="ගුරුවරයා ප්‍රශ්න ඇසීමෙන් ශිෂ්‍යයාගේ අවධානය යොමු කරවයි. මෙය සෑම විනාඩි 10කටම වරක් සිදු කරන්න."),
-        G5LearningActivity(title="ඡේදය ලිවීම — මතකයෙන්",
-            description="Paragraph writing from memory — 5th grade level",
-            type="comprehension", duration_min=8, delivery="independent",
-            instructions="කෙටි ඡේදයක් කියවා, පොත වසා, වාක්‍ය 3කින් ලියන්න. ශබ්දකෝෂ භාවිතා නොකරන්න."),
-        G5LearningActivity(title="Sticker ත්‍යාග ක්‍රමය — Grade 5",
-            description="Daily focus reward chart — age-appropriate",
-            type="focus_builder", duration_min=5, delivery="independent",
-            instructions="දිනකට ඉලක්ක 3ක් ලියා ඒවා සම්පූර්ණ කළ විට ස්ටිකර් අලවන්න. සතිය අවසානයේ ත්‍යාගයක් ලබා දෙන්න."),
-    ],
-    "profile_c": [
-        G5LearningActivity(title="Switch Go + Stillness",
-            description="Cognitive flexibility and motor inhibition — targets impulsivity",
-            type="inhibition", duration_min=10, delivery="in_app",
-            instructions="Switch Go Level 1: Animal/vehicle rules. Stillness: Hold for 30s without lifting a finger."),
-        G5LearningActivity(title="පාලිත විවාදය — පිළිතුරු රැඳීම",
-            description="Controlled debate — waiting turn before responding",
-            type="inhibition", duration_min=10, delivery="teacher_led",
-            instructions="ශිෂ්‍යයා අදහස් ප්‍රකාශ කිරීමට පෙර සෙසු අය අවසන් කරන තෙක් බලා සිටිය යුතුය."),
-        G5LearningActivity(title="Mindfulness දිනපොත",
-            description="Daily mindfulness journal — impulse control practice",
-            type="inhibition", duration_min=8, delivery="independent",
-            instructions="ප්‍රතිචාර දැක්වීමට පෙර ගැඹුරු හුස්ම 3ක් ගන්න. 'මා ඉවසූ අවස්ථා' දිනපොතේ ලියන්න."),
-        G5LearningActivity(title="Strategy Board Game",
-            description="Chess or strategy puzzles — planning before acting",
-            type="inhibition", duration_min=10, delivery="independent",
-            instructions="චෙස්, සුඩෝකු හෝ උපායමාර්ගික ප්‍රහේලිකා. පියවරක් ගැනීමට පෙර තත්පර 5ක් සිතන්න."),
-    ],
-    "profile_d": [
-        G5LearningActivity(title="Filter Level 1 + Ladder",
-            description="Basic filtering and sequential following — mixed deficits",
-            type="focus_builder", duration_min=8, delivery="in_app",
-            instructions="Filter Level 1: 4x4 grid, 20 trials. Ladder: Step-by-step instructions, one step at a time."),
-        G5LearningActivity(title="අත්-ව්‍යවහාරික වර්ගීකරණ කාර්ය",
-            description="Hands-on sorting — physical engagement for mixed profile",
-            type="focus_builder", duration_min=7, delivery="teacher_led",
-            instructions="කාඩ් හෝ වස්තු කාණ්ඩ 2කට වර්ග කිරීමට ශිෂ්‍යයාට ලබා දෙන්න. එක් වරකට එක් සරල උපදෙසක් පමණක් ලබා දෙන්න."),
-        G5LearningActivity(title="Drawing + 1 Sentence",
-            description="Drawing and one-sentence description — creative low-load task",
-            type="focus_builder", duration_min=7, delivery="independent",
-            instructions="මෑතකදී ඉගෙන ගත් දෙයක් රූපයකින් ඇඳ, එක් වාක්‍යයකින් විස්තර කරන්න."),
-        G5LearningActivity(title="Physical Movement Break + Short Task",
-            description="Movement then focus — resets attention for mixed profile",
-            type="focus_builder", duration_min=10, delivery="independent",
-            instructions="විනාඩි 5ක් ශාරීරික ව්‍යායාම කරන්න. ඉන්පසු විනාඩි 5ක් ගැටළු 3ක් විසඳන්න. මෙය මාරුවෙන් මාරුවට සිදු කරන්න."),
-    ],
-}
+# ── Task selection (same logic as Grade 3) ───────────────────────────────────
+def _select_tasks(imp: float, inat: float, acc: float) -> tuple:
+    hi = imp  > 0.25
+    ia = inat > 0.25
+    la = acc  < 0.50
+    if hi and ia:
+        return ["gonogo", "audio_sequence", "wait_match"], "mixed"
+    elif hi:
+        return ["gonogo", "wait_match", "spot_change"], "impulsivity"
+    elif ia:
+        return ["audio_sequence", "spot_change", "attention_grid"], "inattention"
+    elif la:
+        return ["wait_match", "spot_change", "gonogo"], "accuracy"
+    else:
+        return ["attention_grid", "spot_change", "wait_match"], "maintenance"
 
-TEACHER_NOTES = {
-    "profile_a": "Grade 5 ශිෂ්‍යයා ඉහළ අවධානයක් පෙන්වයි. සංකීර්ණ ව්‍යාපෘති සහ විවේචනාත්මක චින්තනය අවශ්‍ය ගැටළු ලබා දෙන්න. Switch Go Level 3 සහ Spot the Change Level 3 නිර්දේශ කෙරේ.",
-    "profile_b": "Grade 5 — ශිෂ්‍යයාට දිගු වේලාවක් අවධානය තබා ගැනීම අපහසුය. පාඩම් කොටස් 3-4 කට බෙදන්න. සෑම විනාඩි 10කටම වරක් ප්‍රශ්නයක් අසා අවධානය පරීක්ෂා කරන්න.",
-    "profile_c": "Grade 5 — ආවේගශීලීතාවය පාලනය කිරීම අවශ්‍ය වේ. 'Think-Aloud' ක්‍රමය භාවිතා කරන්න. Switch Go වැරදි අනුපාතය (error rate) කෙරෙහි අවධානය යොමු කරන්න.",
-    "profile_d": "Grade 5 — ආවේගශීලීතාවය සහ අවධානය යන දෙකෙහිම ගැටළු ඇත. එක් වරකදී එක් පියවරක් පමණක් ලබා දෙන්න. Stillness task සාර්ථකත්වය පිළිබඳව දෙමාපියන් දැනුවත් කරන්න.",
-}
 
-PARENT_NOTES = {
-    "profile_a": "ඔබේ දරුවා Grade 5 මට්ටමේ හොඳ අවධානයක් පෙන්වයි. Switch Go සහ Filter tasks නිවසේදී ක්‍රීඩා ලෙස පුහුණු කරවන්න.",
-    "profile_b": "නිවසේ ඉගෙනීමේදී: කෙටි සහ පැහැදිලි ඉලක්ක ලබා දෙන්න. ස්ටිකර් ත්‍යාග ක්‍රමය (Sticker reward chart) භාවිතා කිරීම දිරිමත් කරන්න.",
-    "profile_c": "නිවසේ ඉගෙනීමේදී: හුස්ම ගැනීමේ ව්‍යායාම (Mindfulness), චෙස් සහ සුඩෝකු වැනි උපායමාර්ගික ක්‍රීඩා සඳහා දරුවා යොමු කරන්න.",
-    "profile_d": "නිවසේ ඉගෙනීමේදී: වැඩ සහ විවේකය මාරුවෙන් මාරුවට ලබා දෙන්න. පියවරෙන් පියවර උපදෙස් ලබා දීම වඩාත් සාර්ථක වේ.",
-}
+# ── Difficulty logic ──────────────────────────────────────────────────────────
+def _get_difficulty(child_id: str, task_id: str, grade: int) -> int:
+    db   = get_db()
+    past = list(
+        db["learning_task_results"]
+        .find({"child_id": child_id, "task_id": task_id, "grade": grade})
+        .sort("session_number", -1)
+        .limit(2)
+    )
+    if len(past) < 2:
+        return 1
+    scores       = [r["score_percent"] for r in past]
+    current_diff = past[0].get("difficulty", 1)
+    if current_diff == 1 and all(s >= 60 for s in scores):
+        return 2
+    elif current_diff == 2 and all(s >= 75 for s in scores):
+        return 3
+    return current_diff
+
+
+def _get_session_number(child_id: str, grade: int) -> int:
+    db    = get_db()
+    count = db["learning_task_results"].count_documents(
+        {"child_id": child_id, "grade": grade}
+    )
+    return (count // 3) + 1
+
+
+def _serialize(doc: dict) -> dict:
+    doc["_id"] = str(doc["_id"])
+    if "created_at" in doc and hasattr(doc["created_at"], "isoformat"):
+        doc["timestamp"] = doc["created_at"].isoformat()
+        del doc["created_at"]
+    return doc
+
+
+# ── Main service functions ────────────────────────────────────────────────────
+def g4_assign_tasks(req: G4LearningTaskAssignRequest) -> G4LearningTaskAssignResponse:
+    db     = get_db()
+    latest = db["adhd_submissions"].find_one(
+        {"child_id": req.child_id, "grade": 4},
+        sort=[("created_at", -1)],
+    )
+
+    if latest and "metrics" in latest:
+        m   = latest["metrics"]
+        imp = m.get("impulsivity_ratio", 0.0)
+        ia  = m.get("inattention_score", 0.0)
+        acc = m.get("overall_accuracy",  1.0)
+    else:
+        imp, ia, acc = 0.1, 0.3, 0.6
+
+    task_ids, dominant = _select_tasks(imp, ia, acc)
+    session_num        = _get_session_number(req.child_id, 4)
+
+    assigned = []
+    for tid in task_ids:
+        defn       = TASK_DEFINITIONS[tid]
+        difficulty = _get_difficulty(req.child_id, tid, 4)
+        assigned.append(G4AssignedTask(
+            task_id        = tid,
+            task_name      = defn["name"],
+            difficulty     = difficulty,
+            target_deficit = defn["target"],
+            instructions   = defn["instructions"][difficulty],
+        ))
+
+    return G4LearningTaskAssignResponse(
+        child_id         = req.child_id,
+        grade            = 4,
+        session_number   = session_num,
+        tasks            = assigned,
+        dominant_deficit = dominant,
+        severity_scores  = {
+            "impulsivity": round(imp, 3),
+            "inattention": round(ia,  3),
+            "accuracy":    round(acc, 3),
+        },
+    )
+
+
+def g4_save_task_result(result: G4LearningTaskResult) -> G4LearningTaskResultResponse:
+    db    = get_db()
+    total = result.total_trials or 1
+    score = round((result.correct / total) * 100, 1)
+
+    past = list(
+        db["learning_task_results"]
+        .find({"child_id": result.child_id, "task_id": result.task_id, "grade": 4})
+        .sort("session_number", -1)
+        .limit(1)
+    )
+    next_diff = result.difficulty
+    if past:
+        if score >= 75 and past[0].get("score_percent", 0) >= 75 and result.difficulty < 3:
+            next_diff = result.difficulty + 1
+    
+    if score >= 80:
+        msg = "ඉතා හොඳයි! ඔබ ඉතා හොඳින් කළා! 🌟"
+    elif score >= 60:
+        msg = "හොඳයි! ඔබ හොඳින් කළා! ⭐"
+    else:
+        msg = "නැවත උත්සාහ කරමු! ඔබට මීට වඩා හොඳින් කළ හැකියි! 💪"
+
+    avg_rt = (
+        round(sum(result.response_times_ms) / len(result.response_times_ms))
+        if result.response_times_ms else 0
+    )
+    now = datetime.utcnow()
+    db["learning_task_results"].insert_one({
+        "child_id":          result.child_id,
+        "grade":             4,
+        "task_id":           result.task_id,
+        "difficulty":        result.difficulty,
+        "correct":           result.correct,
+        "wrong":             result.wrong,
+        "premature":         result.premature,
+        "total_trials":      result.total_trials,
+        "score_percent":     score,
+        "avg_rt_ms":         avg_rt,
+        "response_times_ms": result.response_times_ms,
+        "session_number":    result.session_number,
+        "next_difficulty":   next_diff,
+        "timestamp":         now.isoformat(),
+        "created_at":        now,
+    })
+
+    return G4LearningTaskResultResponse(
+        ok=True, message="ප්‍රතිඵල සුරකින ලදී",
+        score_percent=score, next_difficulty=next_diff, encouragement=msg,
+    )
+
+
+def g4_get_progress(child_id: str) -> dict:
+    db      = get_db()
+    results = list(
+        db["learning_task_results"]
+        .find({"child_id": child_id, "grade": 4})
+        .sort([("created_at", -1), ("timestamp", -1)])
+        .limit(20)
+    )
+    return {"child_id": child_id, "grade": 4, "sessions": [_serialize(r) for r in results]}
