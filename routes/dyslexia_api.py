@@ -516,6 +516,23 @@ async def get_user_history(user_id: str, session_type: Optional[str] = None):
     for s in sessions:
         assessment = s.get("dyslexia_assessment", {})
 
+        sentence_results = []
+
+        for sentence in s.get("sentences", []):
+            metrics = sentence.get("metrics", {})
+
+            total_words = metrics.get("total_words", 1)
+            correct_words = metrics.get("correct_words", 0)
+
+            accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0
+
+            sentence_results.append({
+                "sentence_index": sentence.get("sentence_index"),
+                "accuracy": round(accuracy, 2),
+                "correct_words": correct_words,
+                "total_words": total_words
+            })
+
         results.append({
             "grade": s.get("grade"),
             "level": s.get("level"),
@@ -526,7 +543,8 @@ async def get_user_history(user_id: str, session_type: Optional[str] = None):
             "avg_words_per_second": s.get("avg_words_per_second", 0),
             "total_time_seconds": s.get("total_time_seconds", 0),
             "risk_level": assessment.get("risk_level", "UNKNOWN"),
-            "created_at": s.get("created_at").strftime("%Y-%m-%d")
+            "created_at": s.get("created_at").strftime("%Y-%m-%d"),
+            "sentence_results": sentence_results
         })
 
     return {
