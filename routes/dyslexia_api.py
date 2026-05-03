@@ -24,6 +24,7 @@ from services.dyslexia.comparator import compare_text
 from services.dyslexia.explainer import generate_explanations
 
 from services.dyslexia.skill_analyzer import analyze_skill_weakness
+from models.dyslexia.model_loader import thresholds
 
 router = APIRouter(prefix="/dyslexia", tags=["Dyslexia"])
 
@@ -338,6 +339,7 @@ def submit_session(payload: SessionPayload):
     # -------------------------------
     try:
         dyslexia_risk = predict_dyslexia_risk_ml(ml_input)
+        print("PREDICTION:", dyslexia_risk)
     except Exception as e:
         print("CRITICAL ML ERROR:", e)
         dyslexia_risk = {
@@ -543,6 +545,7 @@ async def get_user_history(user_id: str, session_type: Optional[str] = None):
             "avg_words_per_second": s.get("avg_words_per_second", 0),
             "total_time_seconds": s.get("total_time_seconds", 0),
             "risk_level": assessment.get("risk_level", "UNKNOWN"),
+            "confidence": assessment.get("confidence", 0),
             "created_at": s.get("created_at").strftime("%Y-%m-%d"),
             "sentence_results": sentence_results
         })
