@@ -7,6 +7,12 @@ from routes.adhd_routes import router as adhd_router
 
 from routes.learning_plan_routes import router as learning_plan_router
 from routes.learning_task_routes import router as learning_task_router
+from routes.adhd.g4_adhd_routes import router as g4_adhd_router
+from routes.adhd.g4_learning_plan_routes import router as g4_lplan_router
+from routes.adhd.g4_learning_task_routes import router as g4_ltask_router
+from routes.adhd.g5_adhd_routes import router as g5_adhd_router
+from routes.adhd.g5_learning_plan_routes import router as g5_lplan_router
+from routes.adhd.g5_learning_task_routes import router as g5_ltask_router
 
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
@@ -50,6 +56,12 @@ app.include_router(dyslexia_api_router)
 app.include_router(adhd_router)
 app.include_router(learning_plan_router)
 app.include_router(learning_task_router)
+app.include_router(g4_adhd_router)
+app.include_router(g4_lplan_router)
+app.include_router(g4_ltask_router)
+app.include_router(g5_adhd_router)
+app.include_router(g5_lplan_router)
+app.include_router(g5_ltask_router)
 
 app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
