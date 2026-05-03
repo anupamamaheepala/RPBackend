@@ -142,16 +142,14 @@ def _serialize(doc: dict) -> dict:
 def assign_tasks(req: LearningTaskAssignRequest) -> LearningTaskAssignResponse:
     db = get_db()
 
-    # ✅ Fixed: sort by "client_timestamp" / "created_at" — NOT "created_at" alone
-    # adhd_submissions stores Flutter's timestamp in "client_timestamp"
-    # and server time in "created_at" — use created_at for correct sort
+    # adhd_service.py stores under "metrics" not "computed_metrics"
+    # server time is stored in "created_at" — use for correct sort
     latest = db["adhd_submissions"].find_one(
         {"child_id": req.child_id},
         sort=[("created_at", -1)],
     )
 
     if latest and "metrics" in latest:
-        # ✅ Fixed: adhd_service.py stores under "metrics" not "computed_metrics"
         m           = latest["metrics"]
         impulsivity = m.get("impulsivity_ratio", 0.0)
         inattention = m.get("inattention_score", 0.0)
@@ -242,8 +240,8 @@ def save_task_result(result: LearningTaskResult) -> LearningTaskResultResponse:
         "response_times_ms": result.response_times_ms,
         "session_number":    result.session_number,
         "next_difficulty":   next_diff,
-        "timestamp":         now.isoformat(),  # ✅ string — Flutter reads this
-        "created_at":        now,              # ✅ datetime — for DB sorting
+        "timestamp":         now.isoformat(),  # string — Flutter reads this
+        "created_at":        now,              # datetime — for DB sorting
     })
 
     return LearningTaskResultResponse(
@@ -260,9 +258,10 @@ def get_progress(child_id: str) -> dict:
     results = list(
         db["learning_task_results"]
         .find({"child_id": child_id})
-        .sort("created_at", -1)
+        # FIX 5: fallback sort on "timestamp" for old docs that pre-date "created_at" field
+        .sort([("created_at", -1), ("timestamp", -1)])
         .limit(20)
     )
-    # ✅ Fixed: serialize all docs — converts _id + created_at safely
+    # serialize all docs — converts _id + created_at safely
     clean = [_serialize(r) for r in results]
     return {"child_id": child_id, "sessions": clean}
