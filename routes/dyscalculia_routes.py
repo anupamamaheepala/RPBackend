@@ -61,14 +61,6 @@ class AdaptiveLearningPathEngine:
             "next_level": next_level,
             "message": message
         }
-        
-    def get_questions_for_level(self, level, count=5):
-        level_key = level.lower()
-        all_grade_3 = self.question_bank.get("math_tasks_grade_03", {})
-        questions_pool = all_grade_3.get(level_key, [])
-        if len(questions_pool) < count:
-            return questions_pool
-        return random.sample(questions_pool, count)
 
 __main__.AdaptiveLearningPathEngine = AdaptiveLearningPathEngine
 
@@ -85,22 +77,83 @@ try:
 except Exception as e:
     print(f"Warning: Could not load ML model at {MODEL_PATH}. Error: {e}")
 
-RULE_ENGINE_PATH = os.path.join(current_dir, "learning_path_rule_engine.pkl")
-rule_engine = None
-try:
-    rule_engine = joblib.load(RULE_ENGINE_PATH)
-    print(f"Rule Engine loaded successfully from: {RULE_ENGINE_PATH}")
-except Exception as e:
-    print(f"Warning: Could not load Rule Engine at {RULE_ENGINE_PATH}. Error: {e}")
+# Load all rule engines
+def load_rule_engine(path, grade_name):
+    try:
+        engine = joblib.load(path)
+        print(f"Grade {grade_name} Rule Engine loaded successfully")
+        return engine
+    except Exception as e:
+        print(f"Warning: Could not load G{grade_name} Rule Engine. Error: {e}")
+        return None
+
+rule_engine_g03 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine.pkl"), "3")
+rule_engine_g04 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g04.pkl"), "4")
+rule_engine_g05 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g05.pkl"), "5")
+rule_engine_g06 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g06.pkl"), "6")
+rule_engine_g07 = load_rule_engine(os.path.join(current_dir, "learning_path_rule_engine_g07.pkl"), "7")
+
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+def clean_risk_level(raw_prediction) -> str:
+    if raw_prediction is None:
+        return "Unknown"
+    
+    risk_str = str(raw_prediction)
+    risk_str = risk_str.strip()
+    risk_str = risk_str.replace("[", "").replace("]", "")
+    risk_str = risk_str.replace("'", "").replace('"', "")
+    risk_str = risk_str.strip()
+    risk_str = risk_str.replace("\n", "").replace("\r", "")
+    
+    risk_str_lower = risk_str.lower()
+    if "no dyscalculia" in risk_str_lower or "no" == risk_str_lower.strip():
+        return "No Dyscalculia"
+    elif "severe" in risk_str_lower:
+        return "Severe Dyscalculia"
+    elif "mild" in risk_str_lower:
+        return "Mild Dyscalculia"
+    else:
+        print(f"WARNING: Unknown risk level raw output: {raw_prediction} -> cleaned: {risk_str}")
+        return risk_str if risk_str else "Unknown"
+
+
+def determine_start_level(risk_level_str: str) -> str:
+    risk_lower = risk_level_str.lower()
+    
+    if "severe" in risk_lower:
+        return "easy"
+    elif "mild" in risk_lower:
+        return "medium"
+    elif "no dyscalculia" in risk_lower or "no" == risk_lower.strip():
+        return "hard"
+    else:
+        print(f"WARNING: Unknown risk level '{risk_level_str}', defaulting to 'easy'")
+        return "easy"
+
+
+def get_rule_engine_for_grade(grade: int):
+    engines = {
+        3: rule_engine_g03,
+        4: rule_engine_g04,
+        5: rule_engine_g05,
+        6: rule_engine_g06,
+        7: rule_engine_g07,
+    }
+    engine = engines.get(grade)
+    if engine is None:
+        raise HTTPException(status_code=400, detail=f"No learning path rule engine available for grade {grade}")
+    return engine
 
 
 # ==========================================
-# 3. DETECTION ROUTES
+# 4. DETECTION ROUTES
 # ==========================================
 @router.post("/dyscalculia/submit-result")
 async def submit_dyscalculia_result(result: DyscalculiaResult):
     try:
-        risk_level_str = "Pending/Error"
+        risk_level_str = "Unknown"
         
         if rf_model is not None:
             features = np.array([[
@@ -109,8 +162,11 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
                 result.retries, result.backtracks, result.skipped_items,
                 result.wrong_count, result.completion_time
             ]])
-            prediction = rf_model.predict(features)[0]
-            risk_level_str = str(prediction)
+            raw_prediction = rf_model.predict(features)[0]
+            risk_level_str = clean_risk_level(raw_prediction)
+            print(f"Detection submission - Grade {result.grade} Task {result.task_number}: {risk_level_str}")
+        else:
+            print("WARNING: RF Model not loaded, using default risk level")
 
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
@@ -118,9 +174,16 @@ async def submit_dyscalculia_result(result: DyscalculiaResult):
         
         insert_result = db["dyscalculia_results"].insert_one(result_dict)
         
+        delete_result = db["dyscalculia_learning_state"].delete_one(
+            {"user_id": result.user_id, "grade": result.grade}
+        )
+        print(f"Deleted learning state for user {result.user_id} grade {result.grade}: deleted={delete_result.deleted_count}")
+        
         return {"ok": True, "id": str(insert_result.inserted_id), "risk_level": risk_level_str}
     except Exception as e:
+        print(f"ERROR in submit-result: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/dyscalculia/results/{user_id}")
 async def get_user_dyscalculia_results(user_id: str):
@@ -145,35 +208,58 @@ async def get_user_dyscalculia_results(user_id: str):
 
 
 # ==========================================
-# 4. LEARNING PATH ROUTES
+# 5. LEARNING PATH ROUTES
 # ==========================================
-@router.get("/dyscalculia/learning-state/{user_id}")
-async def get_learning_state(user_id: str):
+@router.get("/dyscalculia/learning-state/{user_id}/{grade}")
+async def get_learning_state(user_id: str, grade: int):
     try:
-        state = db["dyscalculia_learning_state"].find_one({"user_id": user_id})
+        detection = db["dyscalculia_results"].find_one(
+            {"user_id": user_id, "grade": grade}, 
+            sort=[("created_at", -1)]
+        )
+        
+        if not detection:
+            print(f"Access denied: User {user_id} has no detection result for grade {grade}")
+            return {"ok": False, "message": f"Must complete Grade {grade} detection first."}
+
+        risk_level_str = detection.get("risk_level", "Unknown")
+        print(f"Learning state request - User: {user_id}, Grade: {grade}, Detection Risk Level: '{risk_level_str}'")
+        
+        correct_start_level = determine_start_level(risk_level_str)
+        print(f"Determined start level: {correct_start_level}")
+
+        state = db["dyscalculia_learning_state"].find_one({"user_id": user_id, "grade": grade})
         
         if not state:
-            detection = db["dyscalculia_results"].find_one({"user_id": user_id}, sort=[("created_at", -1)])
-            start_level = "easy"
-            if detection:
-                if detection["risk_level"] == "No Dyscalculia": start_level = "hard"
-                elif detection["risk_level"] == "Mild Dyscalculia": start_level = "medium"
-                    
-            state = {"user_id": user_id, "current_level": start_level, "tasks_completed": 0}
+            state = {
+                "user_id": user_id,
+                "grade": grade,
+                "current_level": correct_start_level,
+                "tasks_completed": 0
+            }
             db["dyscalculia_learning_state"].insert_one(state)
+            print(f"Created new learning state: level={correct_start_level}, tasks_completed=0")
+        else:
+            print(f"Found existing learning state: level={state['current_level']}, tasks_completed={state.get('tasks_completed', 0)}")
             
-        return {"level": state["current_level"], "tasks_completed": state.get("tasks_completed", 0)}
+        return {
+            "ok": True,
+            "level": state["current_level"],
+            "tasks_completed": state.get("tasks_completed", 0)
+        }
     except Exception as e:
+        print(f"ERROR in learning-state: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/dyscalculia/learning-questions/{grade}/{level}")
 async def get_learning_questions(grade: int, level: str):
     try:
+        collection_name = f"math_questions_g{grade:02d}"
         grade_key = f"math_tasks_grade_{grade:02d}"
         level_key = level.lower()
         
-        doc = db["math_questions"].find_one({})
+        doc = db[collection_name].find_one({})
         if not doc or grade_key not in doc or level_key not in doc[grade_key]:
             return {"ok": False, "questions": []}
             
@@ -191,22 +277,32 @@ async def get_learning_questions(grade: int, level: str):
 @router.post("/dyscalculia/submit-learning-task")
 async def submit_learning_task(metrics: LearningMetrics):
     try:
-        if rule_engine is None: raise HTTPException(status_code=500, detail="Rule Engine Model not loaded.")
+        active_rule_engine = get_rule_engine_for_grade(metrics.grade)
+
+        if active_rule_engine is None: 
+            raise HTTPException(status_code=500, detail=f"Rule Engine Model for grade {metrics.grade} not loaded.")
             
-        state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id})
+        state = db["dyscalculia_learning_state"].find_one({"user_id": metrics.user_id, "grade": metrics.grade})
         current_level = state["current_level"] if state else "easy"
         
+        print(f"Learning task submission - User: {metrics.user_id}, Grade: {metrics.grade}, Current Level: {current_level}")
+        print(f"Metrics: accuracy={metrics.accuracy}, retries={metrics.retries}, wrongs={metrics.wrong_count}, hesitation={metrics.hesitation_time_avg:.2f}s")
+        
         metrics_dict = metrics.dict()
-        evaluation = rule_engine.evaluate_performance(current_level, metrics_dict)
+        
+        evaluation = active_rule_engine.evaluate_performance(current_level, metrics_dict)
         
         action = evaluation["action"]       
         next_level = evaluation["next_level"] 
         message = evaluation["message"]
         new_tasks_completed = state.get("tasks_completed", 0) + 1
         
+        print(f"Evaluation: action={action}, next_level={next_level}, tasks_completed={new_tasks_completed}")
+        
         db["dyscalculia_learning_state"].update_one(
-            {"user_id": metrics.user_id},
-            {"$set": {"current_level": next_level, "tasks_completed": new_tasks_completed}}
+            {"user_id": metrics.user_id, "grade": metrics.grade},
+            {"$set": {"current_level": next_level, "tasks_completed": new_tasks_completed}},
+            upsert=True
         )
         
         history_record = metrics_dict.copy()
@@ -216,19 +312,25 @@ async def submit_learning_task(metrics: LearningMetrics):
         history_record["created_at"] = datetime.utcnow()
         db["dyscalculia_learning_history"].insert_one(history_record)
         
-        return {"ok": True, "action": action, "next_level": next_level, "message": message, "tasks_completed": new_tasks_completed}
+        return {
+            "ok": True,
+            "action": action,
+            "next_level": next_level,
+            "message": message,
+            "tasks_completed": new_tasks_completed
+        }
     except Exception as e:
+        print(f"ERROR in submit-learning-task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
-# 5. SPECIAL TASK & RESULTS ROUTES (NEW)
+# 6. SPECIAL TASK & RESULTS ROUTES
 # ==========================================
 @router.post("/dyscalculia/submit-special-task")
 async def submit_special_task(result: DyscalculiaResult):
-    """Saves the 5th-round special task to a new collection and resets learning state."""
     try:
-        risk_level_str = "Pending/Error"
+        risk_level_str = "Unknown"
         
         if rf_model is not None:
             features = np.array([[
@@ -237,38 +339,39 @@ async def submit_special_task(result: DyscalculiaResult):
                 result.retries, result.backtracks, result.skipped_items,
                 result.wrong_count, result.completion_time
             ]])
-            prediction = rf_model.predict(features)[0]
-            risk_level_str = str(prediction)
+            raw_prediction = rf_model.predict(features)[0]
+            risk_level_str = clean_risk_level(raw_prediction)
+            print(f"Special task submission - Grade {result.grade}: {risk_level_str}")
+        else:
+            print("WARNING: RF Model not loaded for special task")
 
-        # 1. Save to new collection
         result_dict = result.dict()
         result_dict["risk_level"] = risk_level_str
         result_dict["created_at"] = datetime.utcnow()
         db["dyscalculia_special_results"].insert_one(result_dict)
         
-        # 2. Reset Learning State to prevent infinite loop & adjust difficulty!
-        start_level = "easy"
-        if risk_level_str == "No Dyscalculia": start_level = "hard"
-        elif risk_level_str == "Mild Dyscalculia": start_level = "medium"
-            
+        start_level = determine_start_level(risk_level_str)
+        
         db["dyscalculia_learning_state"].update_one(
-            {"user_id": result.user_id},
+            {"user_id": result.user_id, "grade": result.grade},
             {"$set": {
                 "current_level": start_level, 
-                "tasks_completed": 0 # RESET COUNTER
+                "tasks_completed": 0
             }},
             upsert=True
         )
         
-        return {"ok": True, "risk_level": risk_level_str}
+        print(f"Special task complete - New start level: {start_level}, tasks reset to 0")
+        
+        return {"ok": True, "risk_level": risk_level_str, "next_level": start_level}
     except Exception as e:
+        print(f"ERROR in submit-special-task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/dyscalculia/learning-history/{user_id}")
 async def get_learning_history(user_id: str):
-    """Fetches the latest special task result AND the last 5 micro-missions."""
     try:
-        # Fetch latest Special Task Result
         special_result = db["dyscalculia_special_results"].find_one(
             {"user_id": user_id}, sort=[("created_at", -1)]
         )
@@ -277,7 +380,6 @@ async def get_learning_history(user_id: str):
             if "created_at" in special_result and special_result["created_at"]:
                 special_result["created_at"] = special_result["created_at"].isoformat()
                 
-        # Fetch last 5 Learning Missions
         cursor = db["dyscalculia_learning_history"].find(
             {"user_id": user_id}
         ).sort("created_at", -1).limit(5)
@@ -294,4 +396,377 @@ async def get_learning_history(user_id: str):
             "history": history_list
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/dyscalculia/learning-history-all/{user_id}")
+async def get_all_learning_history(user_id: str):
+    """
+    Get ALL learning history for a user (not limited to 5)
+    """
+    try:
+        cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id}
+        ).sort("created_at", -1)  # Most recent first
+        
+        history_list = list(cursor)
+        for h in history_list:
+            h["_id"] = str(h["_id"])
+            if "created_at" in h and h["created_at"]:
+                h["created_at"] = h["created_at"].isoformat()
+                
+        return {
+            "ok": True,
+            "history": history_list
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/dyscalculia/special-results-all/{user_id}")
+async def get_all_special_results(user_id: str):
+    """
+    Get ALL special task results with their associated learning cycle history.
+    Each special result includes the history entries that happened BEFORE it
+    (since the last special task or from the beginning).
+    """
+    try:
+        # Get all special results for this user, oldest first
+        special_cursor = db["dyscalculia_special_results"].find(
+            {"user_id": user_id}
+        ).sort("created_at", 1)  # Oldest first
+        
+        special_results = list(special_cursor)
+        
+        # Get all learning history, oldest first
+        history_cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id}
+        ).sort("created_at", 1)  # Oldest first
+        
+        all_history = list(history_cursor)
+        
+        # Build result: each special task with its preceding history
+        result_list = []
+        history_start_idx = 0
+        
+        for special in special_results:
+            special_time = special.get("created_at")
+            
+            # Collect history entries that happened before this special task
+            # but after the previous special task
+            cycle_history = []
+            while history_start_idx < len(all_history):
+                hist = all_history[history_start_idx]
+                hist_time = hist.get("created_at")
+                
+                if hist_time and special_time and hist_time < special_time:
+                    cycle_history.append(hist)
+                    history_start_idx += 1
+                else:
+                    break
+            
+            # Format special result
+            special_dict = {
+                "_id": str(special["_id"]),
+                "grade": special.get("grade", 3),
+                "risk_level": special.get("risk_level", "Unknown"),
+                "accuracy": special.get("accuracy", 0),
+                "retries": special.get("retries", 0),
+                "wrong_count": special.get("wrong_count", 0),
+                "completion_time": special.get("completion_time", 0),
+                "hesitation_time_avg": special.get("hesitation_time_avg", 0),
+                "response_time_avg": special.get("response_time_avg", 0),
+                "skipped_items": special.get("skipped_items", 0),
+                "backtracks": special.get("backtracks", 0),
+                "created_at": special["created_at"].isoformat() if special.get("created_at") else None,
+            }
+            
+            # Format history entries
+            formatted_history = []
+            for h in cycle_history:
+                formatted_history.append({
+                    "_id": str(h["_id"]),
+                    "grade": h.get("grade", 3),
+                    "evaluated_action": h.get("evaluated_action", "Unknown"),
+                    "level_played": h.get("level_played", "N/A"),
+                    "next_level": h.get("next_level", "N/A"),
+                    "accuracy": h.get("accuracy", 0),
+                    "retries": h.get("retries", 0),
+                    "wrong_count": h.get("wrong_count", 0),
+                    "completion_time": h.get("completion_time", 0),
+                    "hesitation_time_avg": h.get("hesitation_time_avg", 0),
+                    "response_time_avg": h.get("response_time_avg", 0),
+                    "skipped_items": h.get("skipped_items", 0),
+                    "backtracks": h.get("backtracks", 0),
+                    "created_at": h["created_at"].isoformat() if h.get("created_at") else None,
+                })
+            
+            result_list.append({
+                "special_task": special_dict,
+                "cycle_history": formatted_history,
+            })
+        
+        # Collect any remaining history after the last special task
+        remaining_history = []
+        while history_start_idx < len(all_history):
+            h = all_history[history_start_idx]
+            remaining_history.append({
+                "_id": str(h["_id"]),
+                "grade": h.get("grade", 3),
+                "evaluated_action": h.get("evaluated_action", "Unknown"),
+                "level_played": h.get("level_played", "N/A"),
+                "next_level": h.get("next_level", "N/A"),
+                "accuracy": h.get("accuracy", 0),
+                "retries": h.get("retries", 0),
+                "wrong_count": h.get("wrong_count", 0),
+                "completion_time": h.get("completion_time", 0),
+                "hesitation_time_avg": h.get("hesitation_time_avg", 0),
+                "response_time_avg": h.get("response_time_avg", 0),
+                "skipped_items": h.get("skipped_items", 0),
+                "backtracks": h.get("backtracks", 0),
+                "created_at": h["created_at"].isoformat() if h.get("created_at") else None,
+            })
+            history_start_idx += 1
+        
+        # Reverse to show newest first
+        result_list.reverse()
+        
+        return {
+            "ok": True,
+            "results": result_list,
+            "current_cycle_history": remaining_history  # History after last special task (in progress)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/dashboard/{user_id}/{grade}")
+async def get_dashboard_data(user_id: str, grade: int):
+    """
+    Get comprehensive dashboard data for a specific user and grade.
+    """
+    try:
+        # Get latest detection result for risk level
+        detection = db["dyscalculia_results"].find_one(
+            {"user_id": user_id, "grade": grade},
+            sort=[("created_at", -1)]
+        )
+        
+        risk_level = detection.get("risk_level", "Unknown") if detection else "Unknown"
+        
+        # Get learning state
+        state = db["dyscalculia_learning_state"].find_one(
+            {"user_id": user_id, "grade": grade}
+        )
+        current_level = state.get("current_level", "N/A") if state else "N/A"
+        tasks_completed = state.get("tasks_completed", 0) if state else 0
+        
+        # Get all learning history for this grade
+        history_cursor = db["dyscalculia_learning_history"].find(
+            {"user_id": user_id, "grade": grade}
+        ).sort("created_at", 1)
+        
+        history_list = list(history_cursor)
+        
+        # Calculate quick stats
+        total_tasks = len(history_list)
+        total_wrong = sum(h.get("wrong_count", 0) for h in history_list)
+        total_retries = sum(h.get("retries", 0) for h in history_list)
+        total_skipped = sum(h.get("skipped_items", 0) for h in history_list)
+        total_time = sum(h.get("completion_time", 0) for h in history_list)
+        total_backtracks = sum(h.get("backtracks", 0) for h in history_list)
+        
+        overall_accuracy = 0
+        if total_tasks > 0:
+            total_accuracy = sum(h.get("accuracy", 0) for h in history_list)
+            overall_accuracy = round((total_accuracy / (total_tasks * 5)) * 100)
+        
+        avg_response_time = 0
+        avg_hesitation = 0
+        if total_tasks > 0:
+            avg_response_time = round(sum(h.get("response_time_avg", 0) for h in history_list) / total_tasks, 1)
+            avg_hesitation = round(sum(h.get("hesitation_time_avg", 0) for h in history_list) / total_tasks, 1)
+        
+        # Build learning journey
+        learning_journey = []
+        for h in history_list:
+            learning_journey.append({
+                "session": len(learning_journey) + 1,
+                "accuracy": h.get("accuracy", 0),
+                "action": h.get("evaluated_action", "Stay"),
+                "level": h.get("level_played", "N/A")
+            })
+        
+        # Get special task markers
+        special_cursor = db["dyscalculia_special_results"].find(
+            {"user_id": user_id, "grade": grade}
+        ).sort("created_at", 1)
+        special_results = list(special_cursor)
+        
+        # Map special task completion to approximate session numbers
+        special_task_markers = []
+        tasks_before = 0
+        for special in special_results:
+            special_time = special.get("created_at")
+            session_count = 0
+            for h in history_list:
+                h_time = h.get("created_at")
+                if h_time and special_time and h_time < special_time:
+                    session_count += 1
+            special_task_markers.append(session_count)
+        
+        # Calculate error trend
+        error_trend = "stable"
+        trend_percentage = 0
+        if len(history_list) >= 2:
+            first_half = history_list[:len(history_list)//2]
+            second_half = history_list[len(history_list)//2:]
+            first_wrong = sum(h.get("wrong_count", 0) for h in first_half)
+            second_wrong = sum(h.get("wrong_count", 0) for h in second_half)
+            if first_wrong > 0:
+                change = ((first_wrong - second_wrong) / first_wrong) * 100
+                if change > 5:
+                    error_trend = "decreasing"
+                    trend_percentage = round(change)
+                elif change < -5:
+                    error_trend = "increasing"
+                    trend_percentage = round(abs(change))
+        
+        # Find most challenging level
+        level_errors = {}
+        for h in history_list:
+            level = h.get("level_played", "easy")
+            if level not in level_errors:
+                level_errors[level] = 0
+            level_errors[level] += h.get("wrong_count", 0)
+        most_challenging = max(level_errors, key=level_errors.get) if level_errors else "N/A"
+        
+        # Build per-session error data
+        error_per_session = []
+        for h in history_list:
+            error_per_session.append({
+                "session": len(error_per_session) + 1,
+                "wrong": h.get("wrong_count", 0),
+                "retries": h.get("retries", 0),
+                "skipped": h.get("skipped_items", 0)
+            })
+        
+        # Build behavior data
+        response_time_trend = []
+        hesitation_trend = []
+        session_duration = []
+        for h in history_list:
+            response_time_trend.append({
+                "session": len(response_time_trend) + 1,
+                "avg_time": h.get("response_time_avg", 0)
+            })
+            hesitation_trend.append({
+                "session": len(hesitation_trend) + 1,
+                "avg_hesitation": h.get("hesitation_time_avg", 0)
+            })
+            session_duration.append({
+                "session": len(session_duration) + 1,
+                "time": h.get("completion_time", 0)
+            })
+        
+        # Build radar data
+        radar_data = {
+            "accuracy": overall_accuracy,
+            "speed": max(0, min(100, round(100 - (avg_response_time / 20) * 100))) if avg_response_time > 0 else 100,
+            "consistency": max(0, min(100, round(100 - (avg_hesitation / 10) * 100))) if avg_hesitation > 0 else 100,
+            "persistence": max(0, min(100, round(100 - (total_retries / max(1, total_tasks * 5)) * 100))),
+            "focus": max(0, min(100, round(100 - (total_backtracks / max(1, total_tasks * 5)) * 100))),
+        }
+        
+        # AI prediction (simplified)
+        prediction_trend = "stable"
+        if error_trend == "decreasing":
+            prediction_trend = "improving"
+        elif error_trend == "increasing":
+            prediction_trend = "declining"
+        
+        predicted_risk = risk_level
+        confidence = 50 + (total_tasks * 2)
+        if confidence > 95:
+            confidence = 95
+        
+        # Generate insights
+        strengths = []
+        weaknesses = []
+        recommendations = []
+        
+        if overall_accuracy >= 70:
+            strengths.append("Good accuracy in completing tasks")
+        else:
+            weaknesses.append("Accuracy needs improvement")
+            recommendations.append("Focus on understanding question patterns")
+        
+        if avg_response_time < 8:
+            strengths.append("Good response speed")
+        else:
+            weaknesses.append("Response time is slow")
+            recommendations.append("Practice timed exercises to improve speed")
+        
+        if avg_hesitation < 5:
+            strengths.append("Low hesitation - confident problem solving")
+        else:
+            weaknesses.append("High hesitation when solving problems")
+            recommendations.append("Try to reduce overthinking by practicing regularly")
+        
+        if total_retries < total_tasks * 2:
+            strengths.append("Low retry rate - persistent learner")
+        else:
+            weaknesses.append("Too many retries needed")
+            recommendations.append("Review basic concepts before attempting harder levels")
+        
+        return {
+            "ok": True,
+            "risk_level": {
+                "level": risk_level,
+                "confidence": confidence,
+                "updated_at": detection.get("created_at").isoformat() if detection and detection.get("created_at") else None
+            },
+            "quick_stats": {
+                "overall_accuracy": overall_accuracy,
+                "total_tasks": total_tasks,
+                "total_time_spent": round(total_time),
+                "current_level": current_level
+            },
+            "overview": {
+                "learning_journey": learning_journey,
+                "special_task_markers": special_task_markers,
+                "improvement_rate": trend_percentage if error_trend == "decreasing" else -trend_percentage
+            },
+            "errors": {
+                "per_session": error_per_session,
+                "totals": {
+                    "total_wrong": total_wrong,
+                    "total_retries": total_retries,
+                    "total_skipped": total_skipped
+                },
+                "trend": error_trend,
+                "trend_percentage": trend_percentage,
+                "most_challenging_level": most_challenging
+            },
+            "behavior": {
+                "response_time_trend": response_time_trend,
+                "hesitation_trend": hesitation_trend,
+                "session_duration": session_duration,
+                "averages": {
+                    "avg_response_time": avg_response_time,
+                    "avg_hesitation": avg_hesitation,
+                    "total_backtracks": total_backtracks
+                }
+            },
+            "insights": {
+                "radar_data": radar_data,
+                "prediction": {
+                    "trend": prediction_trend,
+                    "predicted_risk": predicted_risk,
+                    "confidence": confidence
+                },
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "recommendations": recommendations
+            }
+        }
+    except Exception as e:
+        print(f"ERROR in dashboard: {e}")
         raise HTTPException(status_code=500, detail=str(e))
