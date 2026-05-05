@@ -16,6 +16,9 @@ from routes.adhd.g5_learning_task_routes import router as g5_ltask_router
 from routes.adhd.g7_adhd_routes import router as g7_adhd_router
 from routes.adhd.g7_learning_plan_routes import router as g7_lplan_router
 from routes.adhd.g7_learning_task_routes import router as g7_ltask_router
+from routes.adhd.g6_adhd_routes import router as g6_adhd_router
+from routes.adhd.g6_learning_plan_routes import router as g6_lplan_router
+from routes.adhd.g6_learning_task_routes import router as g6_ltask_router
 
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
@@ -68,6 +71,9 @@ app.include_router(g5_ltask_router)
 app.include_router(g7_adhd_router)
 app.include_router(g7_lplan_router)
 app.include_router(g7_ltask_router)
+app.include_router(g6_adhd_router)
+app.include_router(g6_lplan_router)
+app.include_router(g6_ltask_router)
 
 app.include_router(dysgraphia_router)
 app.include_router(dyscalculia_router)
